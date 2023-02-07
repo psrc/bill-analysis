@@ -1,8 +1,12 @@
 # Script for data analysis related to HB1110 data request
 #
-# Important: Run this script from the directory of this file, unless data_dir is set as an absolute path
+# It attaches various dummies to the input parcels file
+# and writes two output parcels file, one with all parcels included 
+# in the bill analysis and one with parcels likely to develop.
+# It then creates several city-level summaries and exports 
+# the into csv files.
 #
-# Last update: 02/06/2023
+# Last update: 02/07/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -10,17 +14,21 @@ if(! "data.table" %in% installed.packages())
 
 library(data.table)
 
+# Run this script from the directory of this file, unless data_dir is set as an absolute path
+setwd("J:/Projects/Bill-Analysis/2023/scripts")
+#setwd("~/psrc/R/bill-analysis/scripts")
+
 # Settings
 write.parcels.file <- TRUE
-write.summary.files <- TRUE
+write.summary.files <- FALSE
 
 data_dir <- "../data" # directory where the data files below live 
                       # (it's a relative path to the script location; can be also set as an absolute path)
-                      # Important: if using a relative path, run this script from the directory of this file
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
 cities_file_name <- "cities18.csv"
-output_parcels_file_name <- paste0("parcels_for_bill_analysis_updated-", Sys.Date(), ".csv") # will be written into data_dir
+# name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
+output_parcels_file_name <- paste0("selected_parcels_for_mapping_XXX-", Sys.Date(), ".csv") # will be written into data_dir
 
 
 # Read input files
@@ -66,7 +74,7 @@ parcels_updated[Nblds == 0, vacant := 1]
 #Creates "land_greater_improvement" field to denotes parcels that have land value that is greater than the improvement value
 parcels_updated[is.na(improvement_value), improvement_value := 0]
 parcels_updated[, land_greater_improvement := 0]
-parcels_updated[land_value >= improvement_value, land_greater_improvement := 1] # we use '>=' to catch cases when both are 0
+parcels_updated[land_value > improvement_value, land_greater_improvement := 1] # we use '>=' to catch cases when both are 0
 
 #Creates "built_sqft_less_1400" field to denotes parcels that have a built square footage of less than 1,400
 parcels_updated[, built_sqft_less_1400 := 0]
@@ -78,10 +86,18 @@ parcels_updated[city_id==95, city_id := 96]
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
 
-#Writes a csv output file
-if(write.parcels.file) 
-    fwrite(parcels_final, file.path(data_dir, output_parcels_file_name))
+parcels_in_bill <- parcels_final[applicable_city == 1 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
+parcels_likely_to_develop <- parcels_final[applicable_city == 1 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
 
+#Writes a csv output files
+if(write.parcels.file) {
+    # reduce amount of data to be saved (remove city_name and reduce decimal digits for capacity columns)
+    parcels_in_bill_to_save <- copy(parcels_in_bill)[, `:=`(city_name = NULL, DUcap = round(DUcap, 3), DUnetcap = round(DUnetcap, 3))]
+    parcels_likely_to_develop_to_save <- copy(parcels_likely_to_develop)[, `:=`(city_name = NULL, DUcap = round(DUcap, 3), DUnetcap = round(DUnetcap, 3))]
+    # write to disk
+    fwrite(parcels_in_bill_to_save, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
+    fwrite(parcels_likely_to_develop_to_save, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
+}
 
 # Create summaries
 create_summary <- function(dt){
@@ -128,5 +144,10 @@ if(write.summary.files){
     #TODO: write out the summary files
 }
 
+cat("\nRegional existing units:\n")
+print(data.table(total = parcels_in_bill[, sum(residential_units)], 
+                 HCT = parcels_in_bill[cities_hct_combined == 1, sum(residential_units)],
+                nonHCT = parcels_in_bill[cities_hct_combined == 0, sum(residential_units)]
+                ))
 
 
