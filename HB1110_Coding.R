@@ -20,7 +20,7 @@ setwd("J:/Projects/Bill-Analysis/2023/scripts")
 
 # Settings
 write.parcels.file <- TRUE
-write.summary.files <- FALSE
+write.summary.files <- TRUE
 
 data_dir <- "../data" # directory where the data files below live 
                       # (it's a relative path to the script location; can be also set as an absolute path)
@@ -29,6 +29,8 @@ parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
 cities_file_name <- "cities18.csv"
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_XXX-", Sys.Date(), ".csv") # will be written into data_dir
+# directory name where summary files should be written
+output_summary_dir <- paste0("csv_summaries-", Sys.Date())
 
 
 # Read input files
@@ -140,14 +142,30 @@ summary_filter_under1400 <- create_summary(parcels_final[sq_ft_less_2500 == 0 & 
 summary_filter_land_value <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1])
 summary_filter_both_mkt <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
 
-if(write.summary.files){
-    #TODO: write out the summary files
-}
+# create a dataset of existing units
+existing_units <- merge(cities[, .(city_id, city_name)], 
+                        parcels_in_bill[, .(total = sum(residential_units), 
+                                                  HCT = sum(residential_units * cities_hct_combined), 
+                                                  nonHCT = sum(residential_units * (cities_hct_combined == 0))),
+                                              by = "city_id"],
+                        by = "city_id")
+# add regional totals as the first row
+existing_units <- rbind(data.table(city_id = 0, city_name = "Region", 
+                                   total = existing_units[, sum(total)], 
+                                   HCT = existing_units[, sum(HCT)],
+                                   nonHCT = existing_units[, sum(nonHCT)]),
+                        existing_units)
 
-cat("\nRegional existing units:\n")
-print(data.table(total = parcels_in_bill[, sum(residential_units)], 
-                 HCT = parcels_in_bill[cities_hct_combined == 1, sum(residential_units)],
-                nonHCT = parcels_in_bill[cities_hct_combined == 0, sum(residential_units)]
-                ))
+if(write.summary.files){
+    summary_dir <- file.path(data_dir, output_summary_dir)
+    if(!dir.exists(summary_dir))
+        dir.create(summary_dir)
+    fwrite(summary_all_parcels, file = file.path(summary_dir, "all_parcels.csv"))
+    fwrite(summary_filter_parcel_sqft, file = file.path(summary_dir, "filter_parcel_sqft.csv"))
+    fwrite(summary_filter_under1400, file = file.path(summary_dir, "filter_parcel_sqft_under1400.csv"))
+    fwrite(summary_filter_land_value, file = file.path(summary_dir, "filter_parcel_sqft_land_value.csv"))
+    fwrite(summary_filter_both_mkt, file = file.path(summary_dir, "filter_all.csv"))
+    fwrite(existing_units, file = file.path(summary_dir, "existing_units.csv"))
+}
 
 
