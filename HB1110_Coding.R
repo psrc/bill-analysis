@@ -118,7 +118,7 @@ create_summary_detail <- function(dt, col_prefix){
     ), by = "city_id"][order(city_id)]
     
     # add prefix to column names (excluding city_id which is first)
-    setnames(detail, colnames(detail)[-1], paste(col_prefix, colnames(detail)[-1], sep = "_"))
+    setnames(detail, colnames(detail)[-1], paste0(col_prefix, colnames(detail)[-1]))
     return(detail)
 }
 
@@ -130,8 +130,8 @@ create_summary <- function(dt){
     ), by = "city_id"][order(city_id)]
     
     # generate HCT and nonHCT parts of the summary
-    summary_hct <- create_summary_detail(dt[cities_hct_combined == 1 & already_zoned == 0], col_prefix = "hct")
-    summary_nonhct <- create_summary_detail(dt[cities_hct_combined == 0 & already_zoned == 0], col_prefix = "nhct")
+    summary_hct <- create_summary_detail(dt[cities_hct_combined == 1 & already_zoned == 0], col_prefix = "hct_")
+    summary_nonhct <- create_summary_detail(dt[cities_hct_combined == 0 & already_zoned == 0], col_prefix = "nhct_")
     
     # merge together and add city_name
     summary_final <- merge(merge(cities[, .(city_id, city_name)], summary_all, by = "city_id"),
