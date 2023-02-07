@@ -15,7 +15,7 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-setwd("J:/Projects/Bill-Analysis/2023/scripts")
+#setwd("J:/Projects/Bill-Analysis/2023/scripts")
 #setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
@@ -76,22 +76,23 @@ parcels_updated[Nblds == 0, vacant := 1]
 #Creates "land_greater_improvement" field to denotes parcels that have land value that is greater than the improvement value
 parcels_updated[is.na(improvement_value), improvement_value := 0]
 parcels_updated[, land_greater_improvement := 0]
-parcels_updated[land_value > improvement_value, land_greater_improvement := 1] # we use '>=' to catch cases when both are 0
+parcels_updated[land_value > improvement_value, land_greater_improvement := 1] 
 
 #Creates "built_sqft_less_1400" field to denotes parcels that have a built square footage of less than 1,400
 parcels_updated[, built_sqft_less_1400 := 0]
 parcels_updated[residential_sqft < 1400, built_sqft_less_1400 := 1]
 
-#Fixes City ID error in "parcels_for_bill_analysis" table
+#Fixes City ID error in "parcels_for_bill_analysis" table (might not be needed after it's corrected in the input file)
 parcels_updated[city_id==95, city_id := 96]
 
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
 
+# split parcels into two sets: 1. all parcels included in the bill, 2. parcels likely to develop
 parcels_in_bill <- parcels_final[applicable_city == 1 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
 parcels_likely_to_develop <- parcels_final[applicable_city == 1 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
 
-#Writes a csv output files
+#Writes csv output files
 if(write.parcels.file) {
     # reduce amount of data to be saved (remove city_name and reduce decimal digits for capacity columns)
     parcels_in_bill_to_save <- copy(parcels_in_bill)[, `:=`(city_name = NULL, DUcap = round(DUcap, 3), DUnetcap = round(DUnetcap, 3))]
@@ -99,43 +100,47 @@ if(write.parcels.file) {
     # write to disk
     fwrite(parcels_in_bill_to_save, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
     fwrite(parcels_likely_to_develop_to_save, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
+    cat("\nParcels written into ", file.path(data_dir, output_parcels_file_name), "\n")
 }
 
-# Create summaries
+
+# Functions for generating summaries
+create_summary_detail <- function(dt, col_prefix){
+    detail <- dt[, .(
+        total_parcels = .N, 
+        res_vacant = sum(res_zone == 1 & vacant == 1),
+        res_sf_use = sum(res_zone == 1 & sf_use == 1),
+        res_other_use = sum(res_zone == 1 & vacant == 0 & sf_use == 0),
+        mix_vacant = sum(mixed_zone == 1 & vacant == 1),
+        mix_sf_use = sum(mixed_zone == 1 & sf_use == 1),
+        mix_other_use = sum(mixed_zone == 1 & vacant == 0 & sf_use == 0),
+        other = sum(res_zone == 0 & mixed_zone == 0)
+    ), by = "city_id"][order(city_id)]
+    
+    # add prefix to column names (excluding city_id which is first)
+    setnames(detail, colnames(detail)[-1], paste(col_prefix, colnames(detail)[-1], sep = "_"))
+    return(detail)
+}
+
 create_summary <- function(dt){
+    # part that involves all parcels
     summary_all <- dt[, .(
         total_parcels = .N, 
         already_zoned = sum(already_zoned)
     ), by = "city_id"][order(city_id)]
     
-    summary_hct <- dt[cities_hct_combined == 1 & already_zoned == 0, .(
-        hct_total_parcels = .N, 
-        hct_res_vacant = sum(res_zone == 1 & vacant == 1),
-        hct_res_sf_use = sum(res_zone == 1 & sf_use == 1),
-        hct_res_other_use = sum(res_zone == 1 & vacant == 0 & sf_use == 0),
-        hct_mix_vacant = sum(mixed_zone == 1 & vacant == 1),
-        hct_mix_sf_use = sum(mixed_zone == 1 & sf_use == 1),
-        hct_mix_other_use = sum(mixed_zone == 1 & vacant == 0 & sf_use == 0),
-        hct_other = sum(res_zone == 0 & mixed_zone == 0)
-    ), by = "city_id"][order(city_id)]
+    # generate HCT and nonHCT parts of the summary
+    summary_hct <- create_summary_detail(dt[cities_hct_combined == 1 & already_zoned == 0], col_prefix = "hct")
+    summary_nonhct <- create_summary_detail(dt[cities_hct_combined == 0 & already_zoned == 0], col_prefix = "nhct")
     
-    summary_nonhct <- dt[cities_hct_combined == 0 & already_zoned == 0, .(
-        nhct_total_parcels = .N, 
-        nhct_res_vacant = sum(res_zone == 1 & vacant == 1),
-        nhct_res_sf_use = sum(res_zone == 1 & sf_use == 1),
-        nhct_res_other_use = sum(res_zone == 1 & vacant == 0 & sf_use == 0),
-        nhct_mix_vacant = sum(mixed_zone == 1 & vacant == 1),
-        nhct_mix_sf_use = sum(mixed_zone == 1 & sf_use == 1),
-        nhct_mix_other_use = sum(mixed_zone == 1 & vacant == 0 & sf_use == 0),
-        nhct_other = sum(res_zone == 0 & mixed_zone == 0)
-    ), by = "city_id"][order(city_id)]
-    
+    # merge together and add city_name
     summary_final <- merge(merge(cities[, .(city_id, city_name)], summary_all, by = "city_id"),
                            merge(summary_hct, summary_nonhct, by = "city_id"),
                            by = "city_id")
     return(summary_final)
 }
 
+# Create summaries
 summary_all_parcels <- create_summary(parcels_final)
 summary_filter_parcel_sqft <- create_summary(parcels_final[sq_ft_less_2500 == 0])
 summary_filter_under1400 <- create_summary(parcels_final[sq_ft_less_2500 == 0 & built_sqft_less_1400 == 1])
@@ -158,14 +163,14 @@ existing_units <- rbind(data.table(city_id = 0, city_name = "Region",
 
 if(write.summary.files){
     summary_dir <- file.path(data_dir, output_summary_dir)
-    if(!dir.exists(summary_dir))
-        dir.create(summary_dir)
+    if(!dir.exists(summary_dir)) dir.create(summary_dir) # create directory if not exists
     fwrite(summary_all_parcels, file = file.path(summary_dir, "all_parcels.csv"))
     fwrite(summary_filter_parcel_sqft, file = file.path(summary_dir, "filter_parcel_sqft.csv"))
     fwrite(summary_filter_under1400, file = file.path(summary_dir, "filter_parcel_sqft_under1400.csv"))
     fwrite(summary_filter_land_value, file = file.path(summary_dir, "filter_parcel_sqft_land_value.csv"))
     fwrite(summary_filter_both_mkt, file = file.path(summary_dir, "filter_all.csv"))
     fwrite(existing_units, file = file.path(summary_dir, "existing_units.csv"))
+    cat("\nSummary files written into ", summary_dir, "\n")
 }
 
 
