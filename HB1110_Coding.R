@@ -1,4 +1,7 @@
 # Script for data analysis related to HB1110 data request
+#
+# Important: Run this script from the directory of this file, unless data_dir is set as an absolute path
+#
 # Last update: 02/06/2023
 # Drew Hanson & Hana Sevcikova
 
@@ -8,12 +11,17 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Settings
+write.parcels.file <- TRUE
+write.summary.files <- TRUE
+
 data_dir <- "../data" # directory where the data files below live 
-                  # (it's a relative path to the script location; can be also set as an absolute path)
+                      # (it's a relative path to the script location; can be also set as an absolute path)
+                      # Important: if using a relative path, run this script from the directory of this file
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
 cities_file_name <- "cities18.csv"
-output_parcels_file_name <- "parcels_for_bill_analysis_updated.csv" # will be written into data_dir
+output_parcels_file_name <- paste0("parcels_for_bill_analysis_updated-", Sys.Date(), ".csv") # will be written into data_dir
+
 
 # Read input files
 parcels_for_bill_analysis <- fread(file.path(data_dir, parcels_file_name)) # parcels
@@ -70,10 +78,55 @@ parcels_updated[city_id==95, city_id := 96]
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
 
-# TODO: translate Mark's mysql scripts into R 
-
 #Writes a csv output file
-fwrite(parcels_final, file.path(data_dir, output_parcels_file_name))
+if(write.parcels.file) 
+    fwrite(parcels_final, file.path(data_dir, output_parcels_file_name))
+
+
+# Create summaries
+create_summary <- function(dt){
+    summary_all <- dt[, .(
+        total_parcels = .N, 
+        already_zoned = sum(already_zoned)
+    ), by = "city_id"][order(city_id)]
+    
+    summary_hct <- dt[cities_hct_combined == 1 & already_zoned == 0, .(
+        hct_total_parcels = .N, 
+        hct_res_vacant = sum(res_zone == 1 & vacant == 1),
+        hct_res_sf_use = sum(res_zone == 1 & sf_use == 1),
+        hct_res_other_use = sum(res_zone == 1 & vacant == 0 & sf_use == 0),
+        hct_mix_vacant = sum(mixed_zone == 1 & vacant == 1),
+        hct_mix_sf_use = sum(mixed_zone == 1 & sf_use == 1),
+        hct_mix_other_use = sum(mixed_zone == 1 & vacant == 0 & sf_use == 0),
+        hct_other = sum(res_zone == 0 & mixed_zone == 0)
+    ), by = "city_id"][order(city_id)]
+    
+    summary_nonhct <- dt[cities_hct_combined == 0 & already_zoned == 0, .(
+        nhct_total_parcels = .N, 
+        nhct_res_vacant = sum(res_zone == 1 & vacant == 1),
+        nhct_res_sf_use = sum(res_zone == 1 & sf_use == 1),
+        nhct_res_other_use = sum(res_zone == 1 & vacant == 0 & sf_use == 0),
+        nhct_mix_vacant = sum(mixed_zone == 1 & vacant == 1),
+        nhct_mix_sf_use = sum(mixed_zone == 1 & sf_use == 1),
+        nhct_mix_other_use = sum(mixed_zone == 1 & vacant == 0 & sf_use == 0),
+        nhct_other = sum(res_zone == 0 & mixed_zone == 0)
+    ), by = "city_id"][order(city_id)]
+    
+    summary_final <- merge(merge(cities[, .(city_id, city_name)], summary_all, by = "city_id"),
+                           merge(summary_hct, summary_nonhct, by = "city_id"),
+                           by = "city_id")
+    return(summary_final)
+}
+
+summary_all_parcels <- create_summary(parcels_final)
+summary_filter_parcel_sqft <- create_summary(parcels_final[sq_ft_less_2500 == 0])
+summary_filter_under1400 <- create_summary(parcels_final[sq_ft_less_2500 == 0 & built_sqft_less_1400 == 1])
+summary_filter_land_value <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1])
+summary_filter_both_mkt <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
+
+if(write.summary.files){
+    #TODO: write out the summary files
+}
 
 
 
