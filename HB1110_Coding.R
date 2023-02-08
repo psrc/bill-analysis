@@ -61,16 +61,10 @@ if(any(! tiers %in% names(tier_constraints)))
 parcels_for_bill_analysis[city_id==95, city_id := 96]
 
 # Codes records that fall in cities/geographies excluded from HB1110 bill requirements with 0's and and everything else with 1's 
-#parcels_for_bill_analysis[ , applicable_city := 1] # assign 1 to all records
-#parcels_for_bill_analysis[city_id %in% c(8,19,36,39,44,47,48,51,52,54,64,66,68,72,74,78,81,82,83,92,95,96), applicable_city := 0 ] # exclude selected cities
 parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
     
 # Creates updated parcel table with "hct_vision" field added
 parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct, all=TRUE)
-
-#Creates "cities_hct_combined" field that denotes records that fall inside an applicable city + and hct areas (1's-in,0's-out)
-#parcels_updated[, cities_hct_combined := 0] 
-#parcels_updated[applicable_city == 1 & vision_hct == 1, cities_hct_combined := 1]
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
