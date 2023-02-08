@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 02/07/2023
+# Last update: 02/08/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -27,27 +27,50 @@ data_dir <- "../data" # directory where the data files below live
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
 cities_file_name <- "cities18.csv"
+tier_file_name <- "cities_coded.csv"
+
+# tier definitions
+tier_constraints <- list(`1` = c(4, 2), # in the form c(hct_constraint, non-hct_constraint)
+                         `2` = c(6, 4)
+                         #`1` = c(6, 4) # original constraint
+                         )
+#tier_column <- "Original"
+tier_column <- "Substitute"
+
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_XXX-", Sys.Date(), ".csv") # will be written into data_dir
 # directory name where summary files should be written
 output_summary_dir <- paste0("csv_summaries-", Sys.Date())
 
 
+
 # Read input files
 parcels_for_bill_analysis <- fread(file.path(data_dir, parcels_file_name)) # parcels
 parcel_vision_hct  <- fread(file.path(data_dir, parcel_vision_hct_file_name)) # HCT locations
 cities <- fread(file.path(data_dir, cities_file_name)) # cities table
-                  
-# Codes records that fall in cities/geographies excluded from HB1110 bill requirements with 0's and and everything else with 1's 
-parcels_for_bill_analysis[ , applicable_city := 1] # assign 1 to all records
-parcels_for_bill_analysis[city_id %in% c(8,19,36,39,44,47,48,51,52,54,64,66,68,72,74,78,81,82,83,92,95,96), applicable_city := 0 ] # exclude selected cities
+tiers_by_city <- fread(file.path(data_dir, tier_file_name))[, c("city_id", tier_column), with = FALSE] # table containing tier assignment to cities
+setnames(tiers_by_city, tier_column, "tier") # rename the tier column to "tier" for simpler access
+cities <- merge(cities, tiers_by_city)
 
+# Get all non-zero tiers and check if there is a definition for them
+tiers <- as.character(unique(cities[tier > 0, tier]))
+if(any(! tiers %in% names(tier_constraints))) 
+    stop("Missing definition of tier(s) ", paste(tiers[! tiers %in% names(tier_constraints)], collapse = ", "), " in the tier_constraints object.")
+
+#Fixes City ID error in the input dataset (might not be needed after it's corrected in the input file)
+parcels_for_bill_analysis[city_id==95, city_id := 96]
+
+# Codes records that fall in cities/geographies excluded from HB1110 bill requirements with 0's and and everything else with 1's 
+#parcels_for_bill_analysis[ , applicable_city := 1] # assign 1 to all records
+#parcels_for_bill_analysis[city_id %in% c(8,19,36,39,44,47,48,51,52,54,64,66,68,72,74,78,81,82,83,92,95,96), applicable_city := 0 ] # exclude selected cities
+parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
+    
 # Creates updated parcel table with "hct_vision" field added
 parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct, all=TRUE)
 
 #Creates "cities_hct_combined" field that denotes records that fall inside an applicable city + and hct areas (1's-in,0's-out)
-parcels_updated[, cities_hct_combined := 0] 
-parcels_updated[applicable_city == 1 & vision_hct == 1, cities_hct_combined := 1]
+#parcels_updated[, cities_hct_combined := 0] 
+#parcels_updated[applicable_city == 1 & vision_hct == 1, cities_hct_combined := 1]
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
@@ -57,9 +80,12 @@ parcels_updated[DUcap > 0 & is_mixed_cap == 0, res_zone := 1]
 parcels_updated[, mixed_zone := 0]
 parcels_updated[DUcap > 0 & is_mixed_cap == 1, mixed_zone := 1]
 
-#Creates "already_zoned" field to denotes parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
+#Creates "already_zoned" field to denote parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
 parcels_updated[, already_zoned := 0]
-parcels_updated[(vision_hct == 1 & DUcap >= 6.0) | (vision_hct == 0 & DUcap >= 4.0), already_zoned := 1]
+for(tier in tiers) { # iterate over the non-zero city tiers
+    parcels_updated[(vision_hct == 1 & DUcap >= tier_constraints[[tier]][1]) | 
+                        (vision_hct == 0 & DUcap >= tier_constraints[[tier]][2]), already_zoned := 1]
+}
 
 #Creates "sq_ft_less_2500" field denoting records with parcel square footage of less then 2,500
 parcels_updated[, sq_ft_less_2500 := 0]
@@ -82,15 +108,13 @@ parcels_updated[land_value > improvement_value, land_greater_improvement := 1]
 parcels_updated[, built_sqft_less_1400 := 0]
 parcels_updated[residential_sqft < 1400, built_sqft_less_1400 := 1]
 
-#Fixes City ID error in "parcels_for_bill_analysis" table (might not be needed after it's corrected in the input file)
-parcels_updated[city_id==95, city_id := 96]
 
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
 
 # split parcels into two sets: 1. all parcels included in the bill, 2. parcels likely to develop
-parcels_in_bill <- parcels_final[applicable_city == 1 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
-parcels_likely_to_develop <- parcels_final[applicable_city == 1 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
+parcels_in_bill <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
+parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
 
 #Writes csv output files
 if(write.parcels.file) {
@@ -125,18 +149,19 @@ create_summary_detail <- function(dt, col_prefix){
 create_summary <- function(dt){
     # part that involves all parcels
     summary_all <- dt[, .(
+        tier = mean(city_tier),
         total_parcels = .N, 
         already_zoned = sum(already_zoned)
     ), by = "city_id"][order(city_id)]
     
     # generate HCT and nonHCT parts of the summary
-    summary_hct <- create_summary_detail(dt[cities_hct_combined == 1 & already_zoned == 0], col_prefix = "hct_")
-    summary_nonhct <- create_summary_detail(dt[cities_hct_combined == 0 & already_zoned == 0], col_prefix = "nhct_")
+    summary_hct <- create_summary_detail(dt[vision_hct == 1 & already_zoned == 0], col_prefix = "hct_")
+    summary_nonhct <- create_summary_detail(dt[vision_hct == 0 & already_zoned == 0], col_prefix = "nhct_")
     
     # merge together and add city_name
-    summary_final <- merge(merge(cities[, .(city_id, city_name)], summary_all, by = "city_id"),
-                           merge(summary_hct, summary_nonhct, by = "city_id"),
-                           by = "city_id")
+    summary_final <- merge(merge(cities[, .(city_id, city_name)], summary_all, by = "city_id", all = TRUE),
+                           merge(summary_hct, summary_nonhct, by = "city_id", all = TRUE),
+                           by = "city_id", all = TRUE)
     return(summary_final)
 }
 
@@ -148,17 +173,17 @@ summary_filter_land_value <- create_summary(parcels_final[sq_ft_less_2500 == 0 &
 summary_filter_both_mkt <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
 
 # create a dataset of existing units
-existing_units <- merge(cities[, .(city_id, city_name)], 
+existing_units <- merge(cities[, .(city_id, tier, city_name)], 
                         parcels_in_bill[, .(total = sum(residential_units), 
-                                                  HCT = sum(residential_units * cities_hct_combined), 
-                                                  nonHCT = sum(residential_units * (cities_hct_combined == 0))),
+                                                  HCT = sum(residential_units * vision_hct == 1), 
+                                                  nonHCT = sum(residential_units * (vision_hct == 0))),
                                               by = "city_id"],
                         by = "city_id")
 # add regional totals as the first row
-existing_units <- rbind(data.table(city_id = 0, city_name = "Region", 
-                                   total = existing_units[, sum(total)], 
-                                   HCT = existing_units[, sum(HCT)],
-                                   nonHCT = existing_units[, sum(nonHCT)]),
+existing_units <- rbind(data.table(city_id = 0, tier = 0, city_name = "Region", 
+                                   total = existing_units[tier > 0, sum(total)], 
+                                   HCT = existing_units[tier > 0, sum(HCT)],
+                                   nonHCT = existing_units[tier > 0, sum(nonHCT)]),
                         existing_units)
 
 if(write.summary.files){
