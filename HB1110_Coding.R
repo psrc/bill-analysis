@@ -77,8 +77,8 @@ parcels_updated[DUcap > 0 & is_mixed_cap == 1, mixed_zone := 1]
 #Creates "already_zoned" field to denote parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
 parcels_updated[, already_zoned := 0]
 for(tier in tiers) { # iterate over the non-zero city tiers
-    parcels_updated[(vision_hct == 1 & DUcap >= tier_constraints[[tier]][1]) | 
-                        (vision_hct == 0 & DUcap >= tier_constraints[[tier]][2]), already_zoned := 1]
+    parcels_updated[(city_tier == tier) & ((vision_hct == 1 & DUcap >= tier_constraints[[tier]][1]) | 
+                        (vision_hct == 0 & DUcap >= tier_constraints[[tier]][2])), already_zoned := 1]
 }
 
 #Creates "sq_ft_less_2500" field denoting records with parcel square footage of less then 2,500
