@@ -110,14 +110,15 @@ parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "
 parcels_in_bill <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
 parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
 
+#remove all fields from parcel tables except parcel_id,vision_hct,and city_tier
+parcels_in_bill <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier")]
+parcels_likely_to_develop <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier")]
+
 #Writes csv output files
 if(write.parcels.file) {
-    # reduce amount of data to be saved (remove city_name and reduce decimal digits for capacity columns)
-    parcels_in_bill_to_save <- copy(parcels_in_bill)[, `:=`(city_name = NULL, DUcap = round(DUcap, 3), DUnetcap = round(DUnetcap, 3))]
-    parcels_likely_to_develop_to_save <- copy(parcels_likely_to_develop)[, `:=`(city_name = NULL, DUcap = round(DUcap, 3), DUnetcap = round(DUnetcap, 3))]
     # write to disk
-    fwrite(parcels_in_bill_to_save, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
-    fwrite(parcels_likely_to_develop_to_save, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
+    fwrite(parcels_in_bill, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
+    fwrite(parcels_likely_to_develop, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
     cat("\nParcels written into ", file.path(data_dir, output_parcels_file_name), "\n")
 }
 
