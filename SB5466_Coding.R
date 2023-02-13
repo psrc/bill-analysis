@@ -1,4 +1,4 @@
-# Script for data analysis related to HB1110 data request
+# Script for data analysis related to SB5466 data request
 #
 # It attaches various dummies to the input parcels file
 # and writes two output parcels file, one with all parcels included 
@@ -25,9 +25,10 @@ write.summary.files <- TRUE
 data_dir <- "../data" # directory where the data files below live 
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
-parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
+parcel_vision_hct_file_name <- "parcel_vision_hct_5466.csv"
 cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded.csv"
+plan_type_file_name <- "plan_type_id_summary_r109_script.csv"
 
 # tier definitions
 tier_constraints <- list(`1` = c(4, 2), # in the form c(hct_constraint, non-hct_constraint)
@@ -49,6 +50,7 @@ parcels_for_bill_analysis <- fread(file.path(data_dir, parcels_file_name)) # par
 parcel_vision_hct  <- fread(file.path(data_dir, parcel_vision_hct_file_name)) # HCT locations
 cities <- fread(file.path(data_dir, cities_file_name)) # cities table
 tiers_by_city <- fread(file.path(data_dir, tier_file_name))[, c("city_id", tier_column), with = FALSE] # table containing tier assignment to cities
+plan_type <- fread(file.path(data_dir, plan_type_file_name)) #plan_type table
 setnames(tiers_by_city, tier_column, "tier") # rename the tier column to "tier" for simpler access
 cities <- merge(cities, tiers_by_city, all = TRUE)
 cities[is.na(tier), tier := 0]
@@ -65,7 +67,10 @@ parcels_for_bill_analysis[city_id==95, city_id := 96]
 parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
     
 # Creates updated parcel table with "hct_vision" field added
-parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct, all=TRUE)
+parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct,by.x = "parcel_id",by.y = "pin_1", all=FALSE)
+
+#Adds new fields from "plan_type" table to final parcel table
+parcels_updated <- merge(parcels_updated, plan_type[, .(plan_type_id,max_du,max_far,is_mixed_use_2,zoned_use,zoned_use_sf_mf)],  by = "plan_type_id")
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
@@ -102,6 +107,66 @@ parcels_updated[land_value > improvement_value, land_greater_improvement := 1]
 #Creates "built_sqft_less_1400" field to denotes parcels that have a built square footage of less than 1,400
 parcels_updated[, built_sqft_less_1400 := 0]
 parcels_updated[residential_sqft < 1400, built_sqft_less_1400 := 1]
+
+#Creates "sq_ft_10000" field to denotes parcels that have developable land area of at least 10,000 sqft
+parcels_updated[, sq_ft_10000 := 0]
+parcels_updated[parcel_sqft >= 10000, sq_ft_10000 := 1]
+
+#Creates "zoned_far_6" field to denote parcels already zoned at 6.0 FAR or higher
+parcels_updated[, zoned_far_6 := 0]
+parcels_updated[zoned_far < 6, zoned_far_6 := 1]
+
+#Creates "zoned_far_4" field to denote parcels already zoned at 4.0 FAR or higher
+parcels_updated[, zoned_far_4 := 0]
+parcels_updated[zoned_far < 4, zoned_far_4 := 1]
+
+#Maximum zoned dwelling units per acre on mixed use parcels, assuming 50%/50% res/nonres development split
+parcels_updated[, max_du_mixed := max_du/2]
+
+#Maximum zoned non-residential floor area ratio (FAR) per acre on mixed use parcels, assuming 50%/50% res/nonres development split
+parcels_updated[, max_far_mixed := max_far_mixed/2]
+
+#Formulas to convert maximum zoned capacity into FAR values
+parcels_updated[, zoned_far_res := 0]
+parcels_updated[zoned_use == "residential", zoned_far_res := max_du * 1452/parcel_sqft]
+
+parcels_updated[, zoned_far_res_mixed := 0]
+parcels_updated[zoned_use == "mixed", zoned_far_res_mixed := max_du_mixed * 1452/parcel_sqft/2]
+
+parcels_updated[, zoned_far_nonres := 0]
+parcels_updated[zoned_use == "commercial", zoned_far_nonres := max_far * parcel_sqft/43560]
+
+parcels_updated[, zoned_far_nonres_mixed := 0]
+parcels_updated[zoned_use == "mixed", zoned_far_nonres_mixed := max_far_mixed * parcel_sqft/43560/2]
+
+parcels_updated[, zoned_far_mixed := 0]
+parcels_updated[zoned_use == "mixed", zoned_far_mixed := zone_far_res_mixed + zone_far_nonres_mixed]
+
+parcels_updated[zoned_far := zone_far_res + zone_far_mixed + zone_far_nonres]
+
+parcels_updated[, zoned_far_6 := 0]
+parcels_updated[zoned_far < 6, zoned_far_6 := 1]
+
+parcels_updated[, zoned_far_4 := 0]
+parcels_updated[zoned_far < 4, zoned_far_4 := 1]
+
+#Formulas to convert built square footage into FAR values
+parcels_updated[current_far_res := residential_sqft/parcel_sqft]
+
+parcels_updated[current_far_nonres := non_residential_sqft/parcel_sqft]
+
+parcels_updated[current_far_mixed := non_residential_sqft/parcel_sqft]
+
+parcels_updated[, current_far_mixed := 0]
+parcels_updated[current_far_res > 0 & current_far_nonres > 0, current_far_mixed := current_far_res + current_far_nonres]
+
+#Current built square footage(FAR) less than 1.0 (Market criteria #2)
+parcels_updated[, current_far_1 := 0]
+parcels_updated[current_far < 1, current_far_1 := 1]
+
+#Parcel meets both market criteria 1 and 2
+parcels_updated[, both_value_size := 0]
+parcels_updated[land_greater_improvement == 1 & current_far_1 == 1, both_value_size := 1]
 
 
 #Adds city_name field to final parcel table
