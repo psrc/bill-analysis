@@ -117,8 +117,8 @@ if(write.parcels.file) {
     parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier")]
     parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier")]
     # write to disk
-    fwrite(parcels_in_bill, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
-    fwrite(parcels_likely_to_develop, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
+    fwrite(parcels_in_bill_to_save, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
+    fwrite(parcels_likely_to_develop_to_save, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
     cat("\nParcels written into ", file.path(data_dir, output_parcels_file_name), "\n")
 }
 
