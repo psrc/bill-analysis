@@ -15,8 +15,8 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-setwd("J:/Projects/Bill-Analysis/2023/scripts")
-#setwd("~/psrc/R/bill-analysis/scripts")
+#setwd("J:/Projects/Bill-Analysis/2023/scripts")
+setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
 write.parcels.file <- TRUE
@@ -26,7 +26,7 @@ data_dir <- "../data" # directory where the data files below live
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
-cities_file_name <- "cities18.csv"
+cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded.csv"
 
 # tier definitions
@@ -50,7 +50,8 @@ parcel_vision_hct  <- fread(file.path(data_dir, parcel_vision_hct_file_name)) # 
 cities <- fread(file.path(data_dir, cities_file_name)) # cities table
 tiers_by_city <- fread(file.path(data_dir, tier_file_name))[, c("city_id", tier_column), with = FALSE] # table containing tier assignment to cities
 setnames(tiers_by_city, tier_column, "tier") # rename the tier column to "tier" for simpler access
-cities <- merge(cities, tiers_by_city)
+cities <- merge(cities, tiers_by_city, all = TRUE)
+cities[is.na(tier), tier := 0]
 
 # Get all non-zero tiers and check if there is a definition for them
 tiers <- as.character(unique(cities[tier > 0, tier]))
@@ -110,12 +111,11 @@ parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "
 parcels_in_bill <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
 parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
 
-#remove all fields from parcel tables except parcel_id,vision_hct,and city_tier
-parcels_in_bill <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier")]
-parcels_likely_to_develop <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier")]
-
 #Writes csv output files
 if(write.parcels.file) {
+    #remove all fields from parcel tables except parcel_id,vision_hct,and city_tier
+    parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier")]
+    parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier")]
     # write to disk
     fwrite(parcels_in_bill, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
     fwrite(parcels_likely_to_develop, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
@@ -144,7 +144,6 @@ create_summary_detail <- function(dt, col_prefix){
 create_summary <- function(dt){
     # part that involves all parcels
     summary_all <- dt[, .(
-        tier = mean(city_tier),
         total_parcels = .N, 
         already_zoned = sum(already_zoned)
     ), by = "city_id"][order(city_id)]
@@ -154,9 +153,9 @@ create_summary <- function(dt){
     summary_nonhct <- create_summary_detail(dt[vision_hct == 0 & already_zoned == 0], col_prefix = "nhct_")
     
     # merge together and add city_name
-    summary_final <- merge(merge(cities[, .(city_id, city_name)], summary_all, by = "city_id", all = TRUE),
+    summary_final <- merge(merge(cities[, .(city_id, city_name, tier)], summary_all, by = "city_id", all = TRUE),
                            merge(summary_hct, summary_nonhct, by = "city_id", all = TRUE),
-                           by = "city_id", all = TRUE)
+                           by = "city_id", all = TRUE)[order(-tier, city_id)]
     return(summary_final)
 }
 
