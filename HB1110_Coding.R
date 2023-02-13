@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 02/08/2023
+# Last update: 02/13/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -15,8 +15,8 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-#setwd("J:/Projects/Bill-Analysis/2023/scripts")
-setwd("~/psrc/R/bill-analysis/scripts")
+setwd("J:/Projects/Bill-Analysis/2023/scripts")
+#setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
 write.parcels.file <- TRUE
