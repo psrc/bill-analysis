@@ -55,6 +55,12 @@ setnames(tiers_by_city, tier_column, "tier") # rename the tier column to "tier" 
 cities <- merge(cities, tiers_by_city, all = TRUE)
 cities[is.na(tier), tier := 0]
 
+#Replace "-" with NAs in plan_type table
+for(col in setdiff(colnames(plan_type), "plan_type_id")){ # iterate over all columns except plan_type_id     
+    plan_type[get(col) == "-", (col) := NA]     
+    plan_type[[col]] <- as.numeric(plan_type[[col]])
+}
+
 # Get all non-zero tiers and check if there is a definition for them
 tiers <- as.character(unique(cities[tier > 0, tier]))
 if(any(! tiers %in% names(tier_constraints))) 
@@ -113,18 +119,18 @@ parcels_updated[, sq_ft_10000 := 0]
 parcels_updated[parcel_sqft >= 10000, sq_ft_10000 := 1]
 
 #Creates "zoned_far_6" field to denote parcels already zoned at 6.0 FAR or higher
-parcels_updated[, zoned_far_6 := 0]
-parcels_updated[zoned_far < 6, zoned_far_6 := 1]
+#parcels_updated[, zoned_far_6 := 0] #HB1110 definition
+#parcels_updated[zoned_far < 6, zoned_far_6 := 1] #HB1110 definition
 
 #Creates "zoned_far_4" field to denote parcels already zoned at 4.0 FAR or higher
-parcels_updated[, zoned_far_4 := 0]
-parcels_updated[zoned_far < 4, zoned_far_4 := 1]
+#parcels_updated[, zoned_far_4 := 0] #HB1110 definition
+#parcels_updated[zoned_far < 4, zoned_far_4 := 1] #HB1110 definition
 
 #Maximum zoned dwelling units per acre on mixed use parcels, assuming 50%/50% res/nonres development split
 parcels_updated[, max_du_mixed := max_du/2]
 
 #Maximum zoned non-residential floor area ratio (FAR) per acre on mixed use parcels, assuming 50%/50% res/nonres development split
-parcels_updated[, max_far_mixed := max_far_mixed/2]
+parcels_updated[, max_far_mixed := max_far/2]
 
 #Formulas to convert maximum zoned capacity into FAR values
 parcels_updated[, zoned_far_res := 0]
@@ -142,7 +148,7 @@ parcels_updated[zoned_use == "mixed", zoned_far_nonres_mixed := max_far_mixed * 
 parcels_updated[, zoned_far_mixed := 0]
 parcels_updated[zoned_use == "mixed", zoned_far_mixed := zone_far_res_mixed + zone_far_nonres_mixed]
 
-parcels_updated[zoned_far := zone_far_res + zone_far_mixed + zone_far_nonres]
+parcels_updated[,zoned_far := zoned_far_res + zoned_far_mixed + zoned_far_nonres]
 
 parcels_updated[, zoned_far_6 := 0]
 parcels_updated[zoned_far < 6, zoned_far_6 := 1]
@@ -151,11 +157,11 @@ parcels_updated[, zoned_far_4 := 0]
 parcels_updated[zoned_far < 4, zoned_far_4 := 1]
 
 #Formulas to convert built square footage into FAR values
-parcels_updated[current_far_res := residential_sqft/parcel_sqft]
+parcels_updated[,current_far_res := residential_sqft/parcel_sqft]
 
-parcels_updated[current_far_nonres := non_residential_sqft/parcel_sqft]
+parcels_updated[,current_far_nonres := non_residential_sqft/parcel_sqft]
 
-parcels_updated[current_far_mixed := non_residential_sqft/parcel_sqft]
+parcels_updated[,current_far_mixed := non_residential_sqft/parcel_sqft]
 
 parcels_updated[, current_far_mixed := 0]
 parcels_updated[current_far_res > 0 & current_far_nonres > 0, current_far_mixed := current_far_res + current_far_nonres]
