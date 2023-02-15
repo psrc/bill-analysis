@@ -4,7 +4,7 @@
 # and writes two output parcels file, one with all parcels included 
 # in the bill analysis and one with parcels likely to develop.
 # It then creates several city-level summaries and exports 
-# the into csv files.
+# the into csv files and an excel file.
 #
 # Last update: 02/15/2023
 # Drew Hanson & Hana Sevcikova
@@ -66,8 +66,11 @@ parcels_for_bill_analysis[city_id==95, city_id := 96]
 
 parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
     
+# remove duplicates from parcel_vision_hct
+parcel_vision_hct_unique <- parcel_vision_hct[, .(vision_hct = min(vision_hct)), by = "pin_1"] # for each parcel take the minimum hct tier
+
 # Creates updated parcel table with "hct_vision" field added
-parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct,by.x = "parcel_id",by.y = "pin_1", 
+parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct_unique, by.x = "parcel_id",by.y = "pin_1", 
                          all.x=TRUE, all.y = FALSE)
 parcels_updated[is.na(vision_hct), vision_hct := 0]
 
