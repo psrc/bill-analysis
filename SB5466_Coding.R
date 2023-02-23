@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files and an excel file.
 #
-# Last update: 02/15/2023
+# Last update: 02/22/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -34,15 +34,27 @@ plan_type_file_name <- "plan_type_id_summary_r109_script.csv"
 tier_column <- "Original"
 #tier_column <- "Substitute"
 
+# size restriction to be included in parts 2-4 of the bill
+min_parcel_sqft_for_analysis <- 10000
+
 # market factor used for comparing land value to improvement value
 market_factor <- 1
 
+# max FAR that would trigger re-development
+max_far_to_redevelop <- 1
+
+# max FAR for limiting mostly messy data
+upper_far_limit <- 50
+
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_SB5466_XXX-", Sys.Date(), ".csv") # will be written into data_dir
-# directory name where summary files should be written
-output_summary_dir <- paste0("summaries_SB5466_mfactor", market_factor, "-", Sys.Date())
+# directory name where results should be written
+output_dir <- paste0("SB5466_results-", Sys.Date())
 
-upper_far_limit <- 50
+# object used to identify directories/files with the various scenarios
+scenario_string <- paste0("_lotsize", min_parcel_sqft_for_analysis, 
+                          "_mfactor", market_factor, 
+                          "_far", max_far_to_redevelop)
 
 # Read input files
 parcels_for_bill_analysis <- fread(file.path(data_dir, parcels_file_name)) # parcels
@@ -64,6 +76,7 @@ for(col in setdiff(colnames(plan_type), c("plan_type_id", "zoned_use", "zoned_us
 #Fixes City ID error in the input dataset (might not be needed after it's corrected in the input file)
 parcels_for_bill_analysis[city_id==95, city_id := 96]
 
+# add city_tier column
 parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
     
 # remove duplicates from parcel_vision_hct
@@ -77,14 +90,17 @@ parcels_updated[is.na(vision_hct), vision_hct := 0]
 #Adds new fields from "plan_type" table to final parcel table
 parcels_updated <- merge(parcels_updated, plan_type[, .(plan_type_id,max_du,max_far,is_mixed_use_2,zoned_use,zoned_use_sf_mf)],  by = "plan_type_id")
 
+# lock all parks
+parcels_updated[land_use_type_id == 19, zoned_use := "other"]
+
 #Creates "land_greater_improvement" field to denotes parcels that have land value that is greater than the improvement value
 parcels_updated[is.na(improvement_value), improvement_value := 0]
 parcels_updated[, land_greater_improvement := 0]
 parcels_updated[land_value > market_factor * improvement_value, land_greater_improvement := 1] 
 
-#Creates "sq_ft_10000" field to denotes parcels that have developable land area of at least 10,000 sqft
-parcels_updated[, sq_ft_10000 := 0]
-parcels_updated[parcel_sqft >= 10000, sq_ft_10000 := 1]
+#Creates a dummy based on the parcel size restriction
+parcels_updated[, developable_sq_ft := 0]
+parcels_updated[parcel_sqft >= min_parcel_sqft_for_analysis, developable_sq_ft := 1]
 
 #Maximum zoned dwelling units per acre on mixed use parcels, assuming 50%/50% res/nonres development split
 parcels_updated[, max_du_mixed := max_du/2]
@@ -132,7 +148,7 @@ parcels_updated[current_far_res > 0 & current_far_nonres > 0, current_far_mixed 
 parcels_updated[, current_far := pmin(upper_far_limit, current_far_res + current_far_nonres + current_far_mixed)]
 parcels_updated[, net_far := pmax(zoned_far - current_far, 0)]
 
-parcels_updated[, zoned_du := zoned_far_res * 30]
+parcels_updated[, zoned_du := zoned_far_res * 30] # is this correct? Shouldn't zoned_du be simply max_du?
 parcels_updated[, net_du := pmax(zoned_du - residential_units, 0)]
 
 parcels_updated[, zoned_nonres_sqft := zoned_far_nonres * 43560]
@@ -140,19 +156,22 @@ parcels_updated[, net_nonres_sqft := pmax(zoned_nonres_sqft - non_residential_sq
 
 
 #Current built square footage(FAR) less than 1.0 (Market criteria #2)
-parcels_updated[, current_far_1 := 0]
-parcels_updated[current_far < 1, current_far_1 := 1]
+parcels_updated[, current_far_to_redevelop := 0]
+parcels_updated[current_far < max_far_to_redevelop, current_far_to_redevelop := 1]
 
 #Parcel meets both market criteria 1 and 2
 parcels_updated[, both_value_size := 0]
-parcels_updated[land_greater_improvement == 1 & current_far_1 == 1, both_value_size := 1]
+parcels_updated[land_greater_improvement == 1 & current_far_to_redevelop == 1, both_value_size := 1]
 
+# Dummy to indicate if parcel is included in the bill or not
+parcels_updated[, is_in_bill := 0]
+parcels_updated[zoned_use %in%  c("residential", "commercial", "mixed") & zoned_far_for_tier == 0 & vision_hct > 0 & developable_sq_ft == 1, is_in_bill := 1]
 
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
 
 # split parcels into two sets: 1. all parcels included in the bill, 2. parcels likely to develop
-parcels_in_bill <- parcels_final[(zoned_use %in%  c("residential", "commercial", "mixed") & sq_ft_10000 == 1 & zoned_far_for_tier == 0) & (vision_hct > 0)]
+parcels_in_bill <- parcels_final[is_in_bill == 1]
 parcels_likely_to_develop <- parcels_in_bill[both_value_size == 1, ]
 
 #Writes csv output files
@@ -160,27 +179,29 @@ if(write.parcels.file) {
     #remove all fields from parcel tables except parcel_id, vision_hct
     parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct")]
     parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct")]
-    # write to disk
-    fwrite(parcels_in_bill_to_save, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
-    fwrite(parcels_likely_to_develop_to_save, file.path(data_dir, 
-                                                        gsub("XXX", paste0("to_develop_mfactor",market_factor), 
-                                                             output_parcels_file_name)))
-    cat("\nParcels written into ", file.path(data_dir, output_parcels_file_name), "\n")
+    # write to disk into a subdirectory of output_dir
+    pcl_dir <- file.path(data_dir, output_dir, paste0("parcels", scenario_string))
+    if(!dir.exists(pcl_dir)) dir.create(pcl_dir, recursive = TRUE)
+    fwrite(parcels_in_bill_to_save, file.path(pcl_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
+    fwrite(parcels_likely_to_develop_to_save, file.path(pcl_dir, 
+                                                        gsub("XXX", "to_develop", output_parcels_file_name)))
+    cat("\nParcels written into ", file.path(pcl_dir, output_parcels_file_name), "\n")
 }
 
 
 # Functions for generating summaries
 create_summary_detail <- function(dt, col_prefix, column_to_sum = "one", decimal = 0){
     detail <- dt[, .(
-        total = round(sum((zoned_use %in%  c("residential", "commercial", "mixed") & sq_ft_10000 == 1 & zoned_far_for_tier == 0)*get(column_to_sum)), decimal),
-        res = round(sum((zoned_use == "residential" & sq_ft_10000 == 1 & zoned_far_for_tier == 0)*get(column_to_sum)), decimal),
-        mixed = round(sum((zoned_use == "mixed" & sq_ft_10000 == 1 & zoned_far_for_tier == 0)*get(column_to_sum)), decimal),
-        comm = round(sum((zoned_use == "commercial" & sq_ft_10000 == 1 & zoned_far_for_tier == 0)*get(column_to_sum)), decimal),
-        zoned_for_far = round(sum((zoned_use %in%  c("residential", "commercial", "mixed") & sq_ft_10000 == 1 & zoned_far_for_tier == 1)*get(column_to_sum)), decimal),
-        sqft_lt_10T = round(sum((zoned_use %in%  c("residential", "commercial", "mixed") & sq_ft_10000 == 0)*get(column_to_sum)), decimal),
+        total = round(sum((is_in_bill == 1)*get(column_to_sum)), decimal),
+        res = round(sum((zoned_use == "residential" & is_in_bill == 1)*get(column_to_sum)), decimal),
+        mixed = round(sum((zoned_use == "mixed" & is_in_bill == 1)*get(column_to_sum)), decimal),
+        comm = round(sum((zoned_use == "commercial" & is_in_bill == 1)*get(column_to_sum)), decimal),
+        zoned_for_far = round(sum((zoned_use %in%  c("residential", "commercial", "mixed") & developable_sq_ft == 1 & zoned_far_for_tier == 1)*get(column_to_sum)), decimal),
+        sqft_lt_threshold = round(sum((zoned_use %in%  c("residential", "commercial", "mixed") & developable_sq_ft == 0)*get(column_to_sum)), decimal),
         industrial = round(sum((! zoned_use %in%  c("residential", "commercial", "mixed"))*get(column_to_sum)), decimal)
     ), by = "city_id"][order(city_id)]
-    
+    # replace "threshold" in column names with the rigt number
+    colnames(detail) <- gsub("threshold", min_parcel_sqft_for_analysis, colnames(detail))
     # add prefix to column names (excluding city_id which is first)
     setnames(detail, colnames(detail)[-1], paste0(col_prefix, colnames(detail)[-1]))
     return(detail)
@@ -190,7 +211,7 @@ create_summary <- function(dt, column_to_sum = "one", decimal = 0){
     # part that involves all parcels
     summary_all <- dt[, .(
         total_parcels = round(sum(get(column_to_sum)), decimal), 
-        subject_to_proposal = round(sum((zoned_use %in%  c("residential", "commercial", "mixed") & sq_ft_10000 == 1 & zoned_far_for_tier == 0 & vision_hct > 0)*get(column_to_sum)), decimal),
+        subject_to_proposal = round(sum((is_in_bill == 1)*get(column_to_sum)), decimal),
         not_in_hct = round(sum((vision_hct == 0)*get(column_to_sum)), decimal)
     ), by = "city_id"][order(city_id)]
     
@@ -214,7 +235,7 @@ summaries[["gross_far"]] <- create_summary(parcels_final, column_to_sum = "zoned
 summaries[["existing_far"]] <- create_summary(parcels_final, column_to_sum = "current_far", decimal = 1) # Table 3
 summaries[["net_far"]] <- create_summary(parcels_final, column_to_sum = "net_far", decimal = 1) # Table 4
 summaries[["parcel_count_land_value"]] <- create_summary(parcels_final[land_greater_improvement == 1]) # Table 5
-summaries[["parcel_count_far_1"]]  <- create_summary(parcels_final[current_far_1 == 1]) # Table 6
+summaries[["parcel_count_far_1"]]  <- create_summary(parcels_final[current_far_to_redevelop == 1]) # Table 6
 parcels_meeting_market_cond <- parcels_final[both_value_size == 1]
 summaries[["parcel_count_market"]]  <- create_summary(parcels_meeting_market_cond) # Table 7
 summaries[["res_far_market"]]  <- create_summary(parcels_meeting_market_cond, 
@@ -235,18 +256,20 @@ summaries[["net_nonres_sqft_market"]] <- create_summary(parcels_meeting_market_c
                                                       column_to_sum = "net_nonres_sqft") # Table 15
 
 if(write.summary.files.to.csv || write.summary.files.to.excel){
-    summary_dir <- file.path(data_dir, output_summary_dir)
+    summary_dir <- file.path(data_dir, output_dir)
     if(!dir.exists(summary_dir)) dir.create(summary_dir) # create directory if not exists
     if(write.summary.files.to.csv) {
+        csvdir <- file.path(summary_dir, paste0("csv", scenario_string)) # put csv files into a sub-directory identified by the scenario
+        if(!dir.exists(csvdir)) dir.create(csvdir) # create sub-directory if not exists
         for(table in names(summaries))
-            fwrite(summaries[[table]], file = file.path(summary_dir, paste0(table, ".csv")))
+            fwrite(summaries[[table]], file = file.path(csvdir, paste0(table, ".csv")))
     }
     if(write.summary.files.to.excel) {
         library(openxlsx)
         write.xlsx(summaries, file = file.path(summary_dir, 
-                                               paste0("SB5466_mfactor", market_factor, "_summaries_all_tables.xlsx")))
+                                               paste0("SB5466_all_tables", scenario_string, ".xlsx")))
     }
-    cat("\nSummaries written into ", summary_dir, "\n")
+    cat("\nResults written into ", summary_dir, "\n")
 }
 
 
