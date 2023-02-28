@@ -284,22 +284,22 @@ create_summary_by_lot_area <- function(dt, ...){
 parcels_final[, one := 1] # dummy for summing # of parcels
 
 summaries <- list()
-summaries[["parcel_count"]] <- create_summary(parcels_final, include_size = FALSE) # Table 1
-summaries[["parcel_count_by_lot_area"]] <- create_summary_by_lot_area(parcels_final)
+summaries[["pcl_count"]] <- create_summary(parcels_final, include_size = FALSE) # Table 1
+summaries[["pcl_count_by_lot_area"]] <- create_summary_by_lot_area(parcels_final)
 summaries[["zoned_du"]] <- create_summary(parcels_final, column_to_sum = "zoned_du") # 
 summaries[["exist_du"]] <- create_summary(parcels_final, column_to_sum = "residential_units")
 summaries[["net_du"]] <- create_summary(parcels_final, column_to_sum = "net_du")
 summaries[["zoned_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "zoned_sqft")
 summaries[["exist_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "non_residential_sqft")
 summaries[["net_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "net_nonres_sqft")
-summaries[["parcel_count_size"]] <- create_summary(parcels_final, include_size = TRUE) # 
+summaries[["pcl_count_size"]] <- create_summary(parcels_final, include_size = TRUE) # 
 #summaries[["gross_far"]] <- create_summary(parcels_final, column_to_sum = "zoned_far", decimal = 1) # Table 2
 #summaries[["existing_far"]] <- create_summary(parcels_final, column_to_sum = "current_far", decimal = 1) # Table 3
 #summaries[["net_far"]] <- create_summary(parcels_final, column_to_sum = "net_far", decimal = 1) # Table 4
-summaries[[paste0("parcel_count_land_impr_ratio_", market_factor)]] <- create_summary(parcels_final[land_greater_improvement == 1]) # Table 5
-summaries[[paste0("parcel_count_far_", max_far_to_redevelop)]]  <- create_summary(parcels_final[current_far_to_redevelop == 1]) # Table 6
+summaries[[paste0("pcl_count_land_imp_ratio_", market_factor)]] <- create_summary(parcels_final[land_greater_improvement == 1]) # Table 5
+summaries[[paste0("pcl_count_far_", max_far_to_redevelop)]]  <- create_summary(parcels_final[current_far_to_redevelop == 1]) # Table 6
 parcels_meeting_market_cond <- parcels_final[both_value_size == 1]
-summaries[["parcel_count_market"]]  <- create_summary(parcels_meeting_market_cond) # Table 7
+summaries[["pcl_count_market"]]  <- create_summary(parcels_meeting_market_cond) # Table 7
 #summaries[["res_far_market"]]  <- create_summary(parcels_meeting_market_cond, 
 #                                                           column_to_sum = "zoned_far_res", decimal = 1) # Table 8
 summaries[["zoned_du_market"]]  <- create_summary(parcels_meeting_market_cond, 
@@ -319,26 +319,26 @@ summaries[["net_nonres_sqft_market"]] <- create_summary(parcels_meeting_market_c
 
 # create top page with regional summaries
 top_page <- NULL
-for(sheet in setdiff(names(summaries), "parcel_count_by_lot_area")){
+for(sheet in setdiff(names(summaries), "pcl_count_by_lot_area")){
     top_page <- rbind(top_page, data.table(indicator = sheet, 
                                            summaries[[sheet]][, lapply(.SD, sum, na.rm = TRUE), 
                                                  .SDcols = setdiff(colnames(summaries[[sheet]]), c("city_id", "city_name", "tier"))]),
                       fill = TRUE)
 }
 description <- list(
-    parcel_count = "Total number of parcels",
+    pcl_count = "Total number of parcels",
     zoned_du = "Gross allowable dwelling units",
     exist_du = "Existing dwelling units",
     net_du = "Net allowable dwelling units",
     zoned_nonres_sqft = "Gross allowable non-residential sqft",
     exist_nonres_sqft = "Existing non-residential sqft",
     net_nonres_sqft = "Net allowable non-residential sqft",
-    parcel_count_size = paste0("Number of parcels larger than ", min_parcel_sqft_for_analysis, " sqft"),
-    parcel_count_land_impr_ratio_MFACTOR = paste0("Number of parcels with land/improvement ratio > ", market_factor,
+    pcl_count_size = paste0("Number of parcels larger than ", min_parcel_sqft_for_analysis, " sqft"),
+    pcl_count_land_imp_ratio_MFACTOR = paste0("Number of parcels with land/improvement ratio > ", market_factor,
                                         " (market 1) and > ", min_parcel_sqft_for_analysis, " sqft"),
-    parcel_count_far_MAXFAR = paste0("Number of parcels with current FAR < ", max_far_to_redevelop,
+    pcl_count_far_MAXFAR = paste0("Number of parcels with current FAR < ", max_far_to_redevelop,
                                " (market 2) and > ", min_parcel_sqft_for_analysis, " sqft"),
-    parcel_count_market = "Number of parcels passing both market criteria as well as the size condition.",
+    pcl_count_market = "Number of parcels passing both market criteria as well as the size condition.",
     zoned_du_market = "Gross allowable dwelling units for parcels passing the market & size criteria",
     exist_du_market = "Existing dwelling units  for parcels passing the market & size criteria",
     net_du_market = "Net allowable dwelling units for parcels passing the market & size criteria",
@@ -385,7 +385,7 @@ if(write.summary.files.to.csv || write.summary.files.to.excel){
         colwidths[["Region"]][1:2] <- c(25, 40)
         colwidths[["Region"]][-c(1,2)] <- 15
         firstcol[["Region"]] <- 3
-        firstcol[["parcel_count_by_lot_area"]] <- 2
+        firstcol[["pcl_count_by_lot_area"]] <- 2
         write.xlsx(summaries, file = file.path(summary_dir, 
                                                paste0("SB5466_all_tables", scenario_string, ".xlsx")),
                    headerStyle = style, colWidths = colwidths, firstActiveRow = 2, firstActiveCol = firstcol)
