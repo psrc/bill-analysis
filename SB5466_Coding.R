@@ -19,7 +19,7 @@ setwd("J:/Projects/Bill-Analysis/2023/scripts")
 #setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
-write.parcels.file <- FALSE
+write.parcels.file <- TRUE
 write.summary.files.to.csv <- FALSE
 write.summary.files.to.excel <- TRUE
 
@@ -93,8 +93,8 @@ parcels_updated <- merge(parcels_updated, plan_type[, .(plan_type_id,max_du,max_
 # lock all parks
 parcels_updated[land_use_type_id == 19, zoned_use := "other"]
 
-# remove parcels outside of UGB
-parcels_updated <- parcels_updated[is_inside_urban_growth_boundary == 1]
+# tag parcels outside of UGB as not HCT
+parcels_updated[is_inside_urban_growth_boundary == 0, vision_hct := 0]
 
 #Creates "land_greater_improvement" field to denotes parcels that have land value that is greater than the improvement value
 parcels_updated[is.na(improvement_value), improvement_value := 0]
@@ -199,11 +199,13 @@ parcels_likely_to_develop <- parcels_in_bill[both_value_size == 1, ]
 if(write.parcels.file) {
     #remove all fields from parcel tables except parcel_id, vision_hct
     parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct")]
+    parcels_in_bill_no_size_to_save <- parcels_final[is_in_bill_no_size == 1, c("parcel_id", "vision_hct")]
     parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct")]
     # write to disk into a subdirectory of output_dir
     pcl_dir <- file.path(data_dir, output_dir, paste0("parcels", scenario_string))
     if(!dir.exists(pcl_dir)) dir.create(pcl_dir, recursive = TRUE)
     fwrite(parcels_in_bill_to_save, file.path(pcl_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
+    fwrite(parcels_in_bill_no_size_to_save, file.path(pcl_dir, gsub("XXX", "in_bill_no_size", output_parcels_file_name)))
     fwrite(parcels_likely_to_develop_to_save, file.path(pcl_dir, 
                                                         gsub("XXX", "to_develop", output_parcels_file_name)))
     cat("\nParcels written into ", file.path(pcl_dir, output_parcels_file_name), "\n")
