@@ -67,6 +67,7 @@ parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
 # Creates updated parcel table with "hct_vision" field added
 #parcel_vision_hct[, vision_hct := any(hct_quarter_mile, parks, schools)]
 #parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct[, .(parcel_id, vision_hct)], all=TRUE)
+parcels_updated <- copy(parcels_for_bill_analysis)
 parcels_updated[, vision_hct := 0]
 parcels_updated[parcel_id %in% parcel_vision_hct[hct_quarter_mile == 1 | parks == 1 | schools == 1, parcel_id], vision_hct := 1]
 

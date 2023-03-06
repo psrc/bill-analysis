@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files and an excel file.
 #
-# Last update: 02/28/2023
+# Last update: 03/06/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -15,8 +15,8 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-setwd("J:/Projects/Bill-Analysis/2023/scripts")
-#setwd("~/psrc/R/bill-analysis/scripts")
+#setwd("J:/Projects/Bill-Analysis/2023/scripts")
+setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
 write.parcels.file <- TRUE
@@ -38,13 +38,16 @@ tier_column <- "Original"
 min_parcel_sqft_for_analysis <- 5000
 
 # market factor used for comparing land value to improvement value
-market_factor <- 1
+market_factor <- 1.5
 
 # max FAR that would trigger re-development
 max_far_to_redevelop <- 1
 
 # max FAR for limiting mostly messy data
 upper_far_limit <- 50
+
+# sqft per unit assumption
+sqft_per_du <-1200
 
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_SB5466_XXX-", Sys.Date(), ".csv") # will be written into data_dir
@@ -120,14 +123,23 @@ parcels_updated[zoned_use == "mixed", zoned_du_mixed := max_du_mixed * parcel_sq
 
 parcels_updated[, zoned_du := zoned_du_res + zoned_du_mixed]
 
+# Compute zoned residential sqft
+parcels_updated[, zoned_sqft_res_only := 0]
+parcels_updated[zoned_use == "residential", zoned_sqft_res_only := zoned_du_res * sqft_per_du]
+
+parcels_updated[, zoned_sqft_res_mixed := 0]
+parcels_updated[zoned_use == "mixed", zoned_sqft_res_mixed := zoned_du_mixed * sqft_per_du]
+
+parcels_updated[, zoned_sqft_res := zoned_sqft_res_only + zoned_sqft_res_mixed]
+
 # Compute zoned non-res sqft
-parcels_updated[, zoned_sqft_nonres := 0]
-parcels_updated[zoned_use == "commercial", zoned_sqft_nonres := max_far * parcel_sqft]
+parcels_updated[, zoned_sqft_nonres_only := 0]
+parcels_updated[zoned_use == "commercial", zoned_sqft_nonres_only := max_far * parcel_sqft]
 
 parcels_updated[, zoned_sqft_nonres_mixed := 0]
 parcels_updated[zoned_use == "mixed", zoned_sqft_nonres_mixed := max_far_mixed * parcel_sqft]
 
-parcels_updated[, zoned_sqft := zoned_sqft_nonres + zoned_sqft_nonres_mixed]
+parcels_updated[, zoned_sqft_nonres := zoned_sqft_nonres_only + zoned_sqft_nonres_mixed]
 
 #Formulas to convert maximum zoned capacity into FAR values
 # For small parcels this value can be huge. Thus, we restrict it to be upper_far_limit (50) at max.
@@ -168,9 +180,9 @@ parcels_updated[, current_far_mixed := 0]
 parcels_updated[current_far_res > 0 & current_far_nonres > 0, current_far_mixed := pmin(upper_far_limit, current_far_res + current_far_nonres)]
 parcels_updated[, current_far := pmin(upper_far_limit, current_far_res + current_far_nonres + current_far_mixed)]
 
-parcels_updated[, net_far := pmax(zoned_far - current_far, 0)]
 parcels_updated[, net_du := pmax(zoned_du - residential_units, 0)]
-parcels_updated[, net_nonres_sqft := pmax(zoned_sqft - non_residential_sqft, 0)]
+parcels_updated[, net_res_sqft := pmax(zoned_sqft_res - residential_sqft, 0)]
+parcels_updated[, net_nonres_sqft := pmax(zoned_sqft_nonres - non_residential_sqft, 0)]
 
 #Current built square footage(FAR) less than 1.0 (Market criteria #2)
 parcels_updated[, current_far_to_redevelop := 0]
@@ -187,6 +199,14 @@ parcels_updated[zoned_use %in%  c("residential", "commercial", "mixed") & zoned_
 # Dummy that adds a size restriction to the previous filter
 parcels_updated[, is_in_bill := 0]
 parcels_updated[is_in_bill_no_size == 1 & developable_sq_ft == 1, is_in_bill := 1]
+
+parcels_updated[, potential_far := zoned_far]
+parcels_updated[is_in_bill & vision_hct == 1, potential_far := pmax(6, zoned_far)]
+parcels_updated[is_in_bill & vision_hct == 2, potential_far := pmax(4, zoned_far)]
+
+parcels_updated[, potential_far_alt := zoned_far]
+parcels_updated[is_in_bill & vision_hct == 1, potential_far_alt := pmax(5.1, zoned_far)]
+parcels_updated[is_in_bill & vision_hct == 2, potential_far_alt := pmax(3.4, zoned_far)]
 
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
@@ -288,36 +308,47 @@ parcels_final[, one := 1] # dummy for summing # of parcels
 summaries <- list()
 summaries[["pcl_count"]] <- create_summary(parcels_final, include_size = FALSE) # Table 1
 summaries[["pcl_count_by_lot_area"]] <- create_summary_by_lot_area(parcels_final)
+
 summaries[["zoned_du"]] <- create_summary(parcels_final, column_to_sum = "zoned_du") # 
 summaries[["exist_du"]] <- create_summary(parcels_final, column_to_sum = "residential_units")
 summaries[["net_du"]] <- create_summary(parcels_final, column_to_sum = "net_du")
-summaries[["zoned_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "zoned_sqft")
+
+summaries[["zoned_res_sqft"]] <- create_summary(parcels_final, column_to_sum = "zoned_sqft_res")
+summaries[["exist_res_sqft"]] <- create_summary(parcels_final, column_to_sum = "residential_sqft")
+summaries[["net_res_sqft"]] <- create_summary(parcels_final, column_to_sum = "net_res_sqft")
+
+summaries[["zoned_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "zoned_sqft_nonres")
 summaries[["exist_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "non_residential_sqft")
 summaries[["net_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "net_nonres_sqft")
+
 summaries[["pcl_count_size"]] <- create_summary(parcels_final, include_size = TRUE) # 
-#summaries[["gross_far"]] <- create_summary(parcels_final, column_to_sum = "zoned_far", decimal = 1) # Table 2
-#summaries[["existing_far"]] <- create_summary(parcels_final, column_to_sum = "current_far", decimal = 1) # Table 3
-#summaries[["net_far"]] <- create_summary(parcels_final, column_to_sum = "net_far", decimal = 1) # Table 4
+
 summaries[[paste0("pcl_count_land_imp_ratio_", market_factor)]] <- create_summary(parcels_final[land_greater_improvement == 1]) # Table 5
 summaries[[paste0("pcl_count_far_", max_far_to_redevelop)]]  <- create_summary(parcels_final[current_far_to_redevelop == 1]) # Table 6
+
 parcels_meeting_market_cond <- parcels_final[both_value_size == 1]
-summaries[["pcl_count_market"]]  <- create_summary(parcels_meeting_market_cond) # Table 7
-#summaries[["res_far_market"]]  <- create_summary(parcels_meeting_market_cond, 
-#                                                           column_to_sum = "zoned_far_res", decimal = 1) # Table 8
+summaries[["pcl_count_market"]]  <- create_summary(parcels_meeting_market_cond) # 
+
 summaries[["zoned_du_market"]]  <- create_summary(parcels_meeting_market_cond, 
-                                                           column_to_sum = "zoned_du") # Table 9
+                                                           column_to_sum = "zoned_du") # 
 summaries[["exist_du_market"]] <- create_summary(parcels_meeting_market_cond, 
-                                                            column_to_sum = "residential_units") # Table 10
+                                                            column_to_sum = "residential_units") # 
 summaries[["net_du_market"]] <- create_summary(parcels_meeting_market_cond, 
-                                                    column_to_sum = "net_du") # Table 11
-#summaries[["zoned_nonres_far_market"]] <- create_summary(parcels_meeting_market_cond, 
-#                                              column_to_sum = "zoned_far_nonres") # Table 12
+                                                    column_to_sum = "net_du") # 
+
+summaries[["zoned_res_sqft_market"]]  <- create_summary(parcels_meeting_market_cond, 
+                                                  column_to_sum = "zoned_sqft_res") #
+summaries[["exist_res_sqft_market"]] <- create_summary(parcels_meeting_market_cond, 
+                                                 column_to_sum = "residential_sqft") # 
+summaries[["net_res_sqft_market"]] <- create_summary(parcels_meeting_market_cond, 
+                                               column_to_sum = "net_res_sqft") 
+
 summaries[["zoned_nonres_sqft_market"]] <- create_summary(parcels_meeting_market_cond, 
-                                                   column_to_sum = "zoned_sqft") # Table 13
+                                                   column_to_sum = "zoned_sqft_nonres") # 
 summaries[["exist_nonres_sqft_market"]] <- create_summary(parcels_meeting_market_cond, 
-                                                    column_to_sum = "non_residential_sqft") # Table 14
+                                                    column_to_sum = "non_residential_sqft") #
 summaries[["net_nonres_sqft_market"]] <- create_summary(parcels_meeting_market_cond, 
-                                                      column_to_sum = "net_nonres_sqft") # Table 15
+                                                      column_to_sum = "net_nonres_sqft") # 
 
 # create top page with regional summaries
 top_page <- NULL
@@ -332,6 +363,9 @@ description <- list(
     zoned_du = "Gross allowable dwelling units",
     exist_du = "Existing dwelling units",
     net_du = "Net allowable dwelling units",
+    zoned_res_sqft = "Gross allowable residential sqft",
+    exist_res_sqft = "Existing residential sqft",
+    net_res_sqft = "Net allowable residential sqft",
     zoned_nonres_sqft = "Gross allowable non-residential sqft",
     exist_nonres_sqft = "Existing non-residential sqft",
     net_nonres_sqft = "Net allowable non-residential sqft",
@@ -344,6 +378,9 @@ description <- list(
     zoned_du_market = "Gross allowable dwelling units for parcels passing the market & size criteria",
     exist_du_market = "Existing dwelling units  for parcels passing the market & size criteria",
     net_du_market = "Net allowable dwelling units for parcels passing the market & size criteria",
+    zoned_res_sqft_market = "Gross allowable residential sqft for parcels passing the market & size criteria",
+    exist_res_sqft_market = "Existing residential sqft for parcels passing the market & size criteria",
+    net_res_sqft_market = "Net allowable residential sqft for parcels passing the market & size criteria"
     zoned_nonres_sqft_market = "Gross allowable non-residential sqft for parcels passing the market & size criteria",
     exist_nonres_sqft_market = "Existing non-residential sqft for parcels passing the market & size criteria",
     net_nonres_sqft_market = "Net allowable non-residential sqft for parcels passing the market & size criteria"
