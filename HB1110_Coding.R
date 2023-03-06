@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 02/13/2023
+# Last update: 03/06/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -20,12 +20,14 @@ setwd("J:/Projects/Bill-Analysis/2023/scripts")
 
 # Settings
 write.parcels.file <- TRUE
-write.summary.files <- TRUE
+write.summary.files.to.csv <- FALSE
+write.summary.files.to.excel <- TRUE
 
 data_dir <- "../data" # directory where the data files below live 
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
-parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
+#parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
+parcel_vision_hct_file_name <- "revised_buffers_1110.csv"
 cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded.csv"
 
@@ -39,10 +41,8 @@ tier_column <- "Substitute"
 
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_XXX-", Sys.Date(), ".csv") # will be written into data_dir
-# directory name where summary files should be written
-output_summary_dir <- paste0("csv_summaries-", Sys.Date())
-
-
+# directory name where results should be written
+output_dir <- paste0("HB1110_results-", Sys.Date())
 
 # Read input files
 parcels_for_bill_analysis <- fread(file.path(data_dir, parcels_file_name)) # parcels
@@ -65,7 +65,10 @@ parcels_for_bill_analysis[city_id==95, city_id := 96]
 parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
     
 # Creates updated parcel table with "hct_vision" field added
-parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct, all=TRUE)
+#parcel_vision_hct[, vision_hct := any(hct_quarter_mile, parks, schools)]
+#parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct[, .(parcel_id, vision_hct)], all=TRUE)
+parcels_updated[, vision_hct := 0]
+parcels_updated[parcel_id %in% parcel_vision_hct[hct_quarter_mile == 1 | parks == 1 | schools == 1, parcel_id], vision_hct := 1]
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
@@ -74,6 +77,9 @@ parcels_updated[DUcap > 0 & is_mixed_cap == 0, res_zone := 1]
 #Creates "mix_zone" field that denotes mixed-use zoned parcels
 parcels_updated[, mixed_zone := 0]
 parcels_updated[DUcap > 0 & is_mixed_cap == 1, mixed_zone := 1]
+
+# exclude all parks
+parcels_updated[land_use_type_id == 19, `:=`(res_zone = 0, mixed_zone = 0)]
 
 #Creates "already_zoned" field to denote parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
 parcels_updated[, already_zoned := 0]
@@ -103,7 +109,6 @@ parcels_updated[land_value > improvement_value, land_greater_improvement := 1]
 parcels_updated[, built_sqft_less_1400 := 0]
 parcels_updated[residential_sqft < 1400, built_sqft_less_1400 := 1]
 
-
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
 
@@ -116,10 +121,12 @@ if(write.parcels.file) {
     #remove all fields from parcel tables except parcel_id,vision_hct,and city_tier
     parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier")]
     parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier")]
-    # write to disk
-    fwrite(parcels_in_bill_to_save, file.path(data_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
-    fwrite(parcels_likely_to_develop_to_save, file.path(data_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
-    cat("\nParcels written into ", file.path(data_dir, output_parcels_file_name), "\n")
+    # write to disk into a subdirectory of output_dir
+    pcl_dir <- file.path(data_dir, output_dir, "parcels")
+    if(!dir.exists(pcl_dir)) dir.create(pcl_dir, recursive = TRUE)
+    fwrite(parcels_in_bill_to_save, file.path(pcl_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
+    fwrite(parcels_likely_to_develop_to_save, file.path(pcl_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
+    cat("\nParcels written into ", file.path(pcl_dir, output_parcels_file_name), "\n")
 }
 
 
@@ -160,11 +167,12 @@ create_summary <- function(dt){
 }
 
 # Create summaries
-summary_all_parcels <- create_summary(parcels_final)
-summary_filter_parcel_sqft <- create_summary(parcels_final[sq_ft_less_2500 == 0])
-summary_filter_under1400 <- create_summary(parcels_final[sq_ft_less_2500 == 0 & built_sqft_less_1400 == 1])
-summary_filter_land_value <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1])
-summary_filter_both_mkt <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
+summaries <- list()
+summaries[["all_parcels"]] <- create_summary(parcels_final)
+summaries[["filter_parcel_sqft"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0])
+summaries[["filter_parcel_sqft_under1400"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0 & built_sqft_less_1400 == 1])
+summaries[["filter_parcel_sqft_land_value"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1])
+summaries[["filter_all"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
 
 # create a dataset of existing units
 existing_units <- merge(cities[, .(city_id, tier, city_name)], 
@@ -180,15 +188,58 @@ existing_units <- rbind(data.table(city_id = 0, tier = 0, city_name = "Region",
                                    nonHCT = existing_units[tier > 0, sum(nonHCT)]),
                         existing_units)
 
-if(write.summary.files){
-    summary_dir <- file.path(data_dir, output_summary_dir)
+# create top page with regional summaries
+top_page <- NULL
+for(sheet in names(summaries)){
+    top_page <- rbind(top_page, data.table(indicator = sheet, 
+                                           summaries[[sheet]][, lapply(.SD, sum, na.rm = TRUE), 
+                                                              .SDcols = setdiff(colnames(summaries[[sheet]]), c("city_id", "city_name", "tier"))]),
+                      fill = TRUE)
+}
+description <- list(
+    all_parcels = "Total number of parcels",
+    filter_parcel_sqft = "Parcels larger than 2500 sqft",
+    filter_parcel_sqft_under1400 = "Parcels larger than 2500 sqft that have built residential sqft smaller than 1400",
+    filter_parcel_sqft_land_value = "Parcels larger than 2500 sqft with land value > improvement value",
+    filter_all = "Parcels larger than 2500 sqft passing both market criteria"
+)
+
+descr <- cbind(data.table(description), indicator = names(description))
+top_page <- merge(descr, top_page, by = "indicator", sort = FALSE)
+summaries[["existing_units"]] <- existing_units
+summaries <- c(list(Region = top_page), summaries) # set the regional summaries as the first sheet
+
+if(write.summary.files.to.csv || write.summary.files.to.excel){
+    summary_dir <- file.path(data_dir, output_dir)
     if(!dir.exists(summary_dir)) dir.create(summary_dir) # create directory if not exists
-    fwrite(summary_all_parcels, file = file.path(summary_dir, "all_parcels.csv"))
-    fwrite(summary_filter_parcel_sqft, file = file.path(summary_dir, "filter_parcel_sqft.csv"))
-    fwrite(summary_filter_under1400, file = file.path(summary_dir, "filter_parcel_sqft_under1400.csv"))
-    fwrite(summary_filter_land_value, file = file.path(summary_dir, "filter_parcel_sqft_land_value.csv"))
-    fwrite(summary_filter_both_mkt, file = file.path(summary_dir, "filter_all.csv"))
-    fwrite(existing_units, file = file.path(summary_dir, "existing_units.csv"))
+    if(write.summary.files.to.csv) {
+        csvdir <- file.path(summary_dir, "csv")
+        if(!dir.exists(csvdir)) dir.create(csvdir) # create sub-directory if not exists
+        for(table in names(summaries))
+            fwrite(summaries[[table]], file = file.path(csvdir, paste0(table, ".csv")))
+    }
+    if(write.summary.files.to.excel) {
+        library(openxlsx)
+        # style of the header
+        style <- createStyle(
+            textDecoration = "BOLD", fontColour = "#FFFFFF", fontSize = 12, fgFill = "#4F80BD"
+        )
+        # set the width of columns and how many columns should be freezed
+        colwidths <- list()
+        firstcol <- list()
+        for(sheet in names(summaries)){
+            colwidths[[sheet]] <- rep(10, ncol(summaries[[sheet]]))
+            colwidths[[sheet]][colnames(summaries[[sheet]]) == "city_id"] <- 7
+            colwidths[[sheet]][colnames(summaries[[sheet]]) == "tier"] <- 5
+            colwidths[[sheet]][colnames(summaries[[sheet]]) == "city_name"] <- 20
+            firstcol[[sheet]] <- 4
+        }
+        colwidths[["Region"]][1:2] <- c(25, 40)
+        colwidths[["Region"]][-c(1,2)] <- 15
+        firstcol[["Region"]] <- 3
+        write.xlsx(summaries, file = file.path(summary_dir, "HB1110_all_tables.xlsx"),
+                   headerStyle = style, colWidths = colwidths, firstActiveRow = 2, firstActiveCol = firstcol)
+    }
     cat("\nSummary files written into ", summary_dir, "\n")
 }
 
