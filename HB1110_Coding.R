@@ -15,11 +15,11 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-setwd("J:/Projects/Bill-Analysis/2023/scripts")
+#setwd("J:/Projects/Bill-Analysis/2023/scripts")
 #setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
-write.parcels.file <- TRUE
+write.parcels.file <- FALSE
 write.summary.files.to.csv <- FALSE
 write.summary.files.to.excel <- TRUE
 
@@ -190,10 +190,11 @@ existing_units <- rbind(data.table(city_id = 0, tier = 0, city_name = "Region",
                         existing_units)
 
 # create top page with regional summaries
-top_page <- NULL
+top_page <- top_page_total <- NULL
 for(sheet in names(summaries)){
-    top_page <- rbind(top_page, data.table(indicator = sheet, 
-                                           summaries[[sheet]][, lapply(.SD, sum, na.rm = TRUE), 
+    top_page_total <- rbind(top_page_total, data.table(indicator = sheet, 
+                                           tier = -1,
+                                           summaries[[sheet]][tier > 0, lapply(.SD, sum, na.rm = TRUE), 
                                                               .SDcols = setdiff(colnames(summaries[[sheet]]), c("city_id", "city_name", "tier"))]),
                       fill = TRUE)
 }
@@ -204,9 +205,19 @@ description <- list(
     filter_parcel_sqft_land_value = "Parcels larger than 2500 sqft with land value > improvement value",
     filter_all = "Parcels larger than 2500 sqft passing both market criteria"
 )
-
 descr <- cbind(data.table(description), indicator = names(description))
-top_page <- merge(descr, top_page, by = "indicator", sort = FALSE)
+top_page_total <- merge(descr, top_page_total, by = "indicator", sort = FALSE)
+
+# summaries by tier
+for(sheet in names(summaries)){
+    top_page <- rbind(top_page, top_page_total[indicator == sheet])
+    top_page <- rbind(top_page, data.table(indicator = "", 
+                                           description = "",
+                                           summaries[[sheet]][, lapply(.SD, sum, na.rm = TRUE), 
+                                                              .SDcols = setdiff(colnames(summaries[[sheet]]), c("city_id", "city_name", "tier")), by = "tier"]),
+                      fill = TRUE)
+}
+top_page[,tier := as.character(tier)][tier == -1, tier := "total"]
 summaries[["existing_units"]] <- existing_units
 summaries <- c(list(Region = top_page), summaries) # set the regional summaries as the first sheet
 
@@ -236,8 +247,7 @@ if(write.summary.files.to.csv || write.summary.files.to.excel){
             firstcol[[sheet]] <- 4
         }
         colwidths[["Region"]][1:2] <- c(25, 40)
-        colwidths[["Region"]][-c(1,2)] <- 15
-        firstcol[["Region"]] <- 3
+        colwidths[["Region"]][-(1:3)] <- 15
         write.xlsx(summaries, file = file.path(summary_dir, "HB1110_all_tables.xlsx"),
                    headerStyle = style, colWidths = colwidths, firstActiveRow = 2, firstActiveCol = firstcol)
     }
