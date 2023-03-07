@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files and an excel file.
 #
-# Last update: 03/06/2023
+# Last update: 03/07/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -38,7 +38,7 @@ tier_column <- "Original"
 min_parcel_sqft_for_analysis <- 5000
 
 # market factor used for comparing land value to improvement value
-market_factor <- 1.5
+market_factor <- 1
 
 # max FAR that would trigger re-development
 max_far_to_redevelop <- 1
@@ -60,7 +60,7 @@ output_dir <- paste0("SB5466_results-", Sys.Date())
 
 # object used to identify directories/files with the various scenarios
 scenario_string <- paste0("_lotsize", min_parcel_sqft_for_analysis, 
-                          #"_mfactor", market_factor, 
+                          "_mfactor", market_factor, 
                           "_far", max_far_to_redevelop,
                           if(all(potential_far_for_capacity == c(6,4))) "" else paste0("_potfar", 
                           potential_far_for_capacity[1], "_", potential_far_for_capacity[2]))
@@ -98,6 +98,8 @@ parcels_updated[is.na(vision_hct), vision_hct := 0]
 
 #Adds new fields from "plan_type" table to final parcel table
 parcels_updated <- merge(parcels_updated, plan_type[, .(plan_type_id,max_du,max_far,is_mixed_use_2,zoned_use,zoned_use_sf_mf)],  by = "plan_type_id")
+parcels_updated[is.na(max_far), max_far := 0]
+parcels_updated[is.na(max_du), max_du := 0]
 
 # lock all parks
 parcels_updated[land_use_type_id == 19, zoned_use := "other"]
@@ -140,7 +142,7 @@ parcels_updated[, zoned_sqft_res := zoned_sqft_res_only + zoned_sqft_res_mixed]
 
 # Compute zoned non-res sqft
 parcels_updated[, zoned_sqft_nonres_only := 0]
-parcels_updated[zoned_use == "commercial", zoned_sqft_nonres_only := max_far * parcel_sqft]
+parcels_updated[! zoned_use %in% c("residential", "mixed"), zoned_sqft_nonres_only := max_far * parcel_sqft]
 
 parcels_updated[, zoned_sqft_nonres_mixed := 0]
 parcels_updated[zoned_use == "mixed", zoned_sqft_nonres_mixed := max_far_mixed * parcel_sqft]
@@ -156,7 +158,7 @@ parcels_updated[, zoned_far_res_mixed := 0]
 parcels_updated[zoned_use == "mixed" & parcel_sqft > 0, zoned_far_res_mixed := pmin(upper_far_limit, zoned_du_mixed * sqft_per_du/parcel_sqft)] # don't divide by two since max_du_mixed has been already halfed
 
 parcels_updated[, zoned_far_nonres := 0]
-parcels_updated[zoned_use == "commercial", zoned_far_nonres := max_far]
+parcels_updated[! zoned_use %in% c("residential", "mixed"), zoned_far_nonres := max_far]
 
 parcels_updated[, zoned_far_nonres_mixed := 0]
 parcels_updated[zoned_use == "mixed", zoned_far_nonres_mixed := max_far_mixed]
@@ -202,26 +204,27 @@ parcels_updated[zoned_use %in%  c("residential", "commercial", "mixed") & zoned_
 parcels_updated[, is_in_bill := 0]
 parcels_updated[is_in_bill_no_size == 1 & developable_sq_ft == 1, is_in_bill := 1]
 
+# upzone eligible parcels
 parcels_updated[, `:=`(potential_far_res_mixed = zoned_far_res_mixed, potential_far_res = zoned_far_res, 
                        potential_far_nonres_mixed = zoned_far_nonres_mixed, potential_far_nonres = zoned_far_nonres, 
                        potential_far = zoned_far)]
-parcels_updated[is_in_bill & vision_hct == 1 & zoned_use == "mixed", `:=`(potential_far_res_mixed = pmax(potential_far_for_capacity[1]/2, potential_far_res_mixed),
+parcels_updated[is_in_bill_no_size & vision_hct == 1 & zoned_use == "mixed", `:=`(potential_far_res_mixed = pmax(potential_far_for_capacity[1]/2, potential_far_res_mixed),
                                                                           potential_far_nonres_mixed = pmax(potential_far_for_capacity[1]/2, potential_far_nonres_mixed)
                                                                                                          )]
-parcels_updated[is_in_bill & vision_hct == 1 & zoned_use != "mixed", `:=`(potential_far_res = pmax(potential_far_for_capacity[1], potential_far_res),
+parcels_updated[is_in_bill_no_size & vision_hct == 1 & zoned_use != "mixed", `:=`(potential_far_res = pmax(potential_far_for_capacity[1], potential_far_res),
                                                                           potential_far_nonres = pmax(potential_far_for_capacity[1], potential_far_nonres))]
-parcels_updated[is_in_bill & vision_hct == 2 & zoned_use == "mixed", `:=`(potential_far_res_mixed = pmax(potential_far_for_capacity[2]/2, potential_far_res_mixed),
+parcels_updated[is_in_bill_no_size & vision_hct == 2 & zoned_use == "mixed", `:=`(potential_far_res_mixed = pmax(potential_far_for_capacity[2]/2, potential_far_res_mixed),
                                                                           potential_far_nonres_mixed = pmax(potential_far_for_capacity[2]/2, potential_far_nonres_mixed)
                                                                             )]
-parcels_updated[is_in_bill & vision_hct == 2 & zoned_use != "mixed", `:=`(potential_far_res = pmax(potential_far_for_capacity[2], potential_far_res),
+parcels_updated[is_in_bill_no_size & vision_hct == 2 & zoned_use != "mixed", `:=`(potential_far_res = pmax(potential_far_for_capacity[2], potential_far_res),
                                                                           potential_far_nonres = pmax(potential_far_for_capacity[2], potential_far_nonres))]
 parcels_updated[, potential_far := potential_far_res_mixed + potential_far_nonres_mixed + potential_far_res + potential_far_nonres]
 
 # Compute potential DUs & sqft
-parcels_updated[, `:=`(potential_du = 0, potential_sqft_res = 0, potential_sqft_nonres = 0)]
+parcels_updated[, `:=`(potential_du = zoned_du, potential_sqft_res = zoned_sqft_res, potential_sqft_nonres = zoned_sqft_nonres)]
 parcels_updated[zoned_use %in% c("residential", "mixed"), `:=`(potential_du = (potential_far_res + potential_far_res_mixed) * parcel_sqft/sqft_per_du,
                                                                potential_sqft_res = (potential_far_res + potential_far_res_mixed) * parcel_sqft)]
-parcels_updated[zoned_use %in% c("commercial", "mixed"), `:=`(potential_sqft_nonres = (potential_far_nonres + potential_far_nonres_mixed) * parcel_sqft)]
+parcels_updated[zoned_use != "residential", `:=`(potential_sqft_nonres = (potential_far_nonres + potential_far_nonres_mixed) * parcel_sqft)]
 
 # Compute net DU, sqft
 parcels_updated[, `:=`(net_du = pmax(potential_du - residential_units, 0),
