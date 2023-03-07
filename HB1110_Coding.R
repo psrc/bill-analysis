@@ -15,7 +15,7 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-#setwd("J:/Projects/Bill-Analysis/2023/scripts")
+setwd("J:/Projects/Bill-Analysis/2023/scripts")
 #setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
