@@ -15,11 +15,11 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-#setwd("J:/Projects/Bill-Analysis/2023/scripts")
-setwd("~/psrc/R/bill-analysis/scripts")
+setwd("J:/Projects/Bill-Analysis/2023/scripts")
+#setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
-write.parcels.file <- TRUE
+write.parcels.file <- FALSE
 write.summary.files.to.csv <- FALSE
 write.summary.files.to.excel <- TRUE
 
@@ -49,6 +49,10 @@ upper_far_limit <- 50
 # sqft per unit assumption
 sqft_per_du <-1200
 
+# FAR used for computing capacity measures in (hct-1, hct-2)
+potential_far_for_capacity <- c(6, 4)
+#potential_far_for_capacity <- c(5.1, 3.4)
+
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_SB5466_XXX-", Sys.Date(), ".csv") # will be written into data_dir
 # directory name where results should be written
@@ -56,8 +60,10 @@ output_dir <- paste0("SB5466_results-", Sys.Date())
 
 # object used to identify directories/files with the various scenarios
 scenario_string <- paste0("_lotsize", min_parcel_sqft_for_analysis, 
-                          "_mfactor", market_factor, 
-                          "_far", max_far_to_redevelop)
+                          #"_mfactor", market_factor, 
+                          "_far", max_far_to_redevelop,
+                          if(all(potential_far_for_capacity == c(6,4))) "" else paste0("_potfar", 
+                          potential_far_for_capacity[1], "_", potential_far_for_capacity[2]))
 
 # Read input files
 parcels_for_bill_analysis <- fread(file.path(data_dir, parcels_file_name)) # parcels
@@ -144,10 +150,10 @@ parcels_updated[, zoned_sqft_nonres := zoned_sqft_nonres_only + zoned_sqft_nonre
 #Formulas to convert maximum zoned capacity into FAR values
 # For small parcels this value can be huge. Thus, we restrict it to be upper_far_limit (50) at max.
 parcels_updated[, zoned_far_res := 0]
-parcels_updated[zoned_use == "residential" & parcel_sqft > 0, zoned_far_res := pmin(upper_far_limit, zoned_du_res * 1452/parcel_sqft)]
+parcels_updated[zoned_use == "residential" & parcel_sqft > 0, zoned_far_res := pmin(upper_far_limit, zoned_du_res * sqft_per_du/parcel_sqft)]
 
 parcels_updated[, zoned_far_res_mixed := 0]
-parcels_updated[zoned_use == "mixed" & parcel_sqft > 0, zoned_far_res_mixed := pmin(upper_far_limit, zoned_du_mixed * 1452/parcel_sqft)] # don't divide by two since max_du_mixed has been already halfed
+parcels_updated[zoned_use == "mixed" & parcel_sqft > 0, zoned_far_res_mixed := pmin(upper_far_limit, zoned_du_mixed * sqft_per_du/parcel_sqft)] # don't divide by two since max_du_mixed has been already halfed
 
 parcels_updated[, zoned_far_nonres := 0]
 parcels_updated[zoned_use == "commercial", zoned_far_nonres := max_far]
@@ -180,10 +186,6 @@ parcels_updated[, current_far_mixed := 0]
 parcels_updated[current_far_res > 0 & current_far_nonres > 0, current_far_mixed := pmin(upper_far_limit, current_far_res + current_far_nonres)]
 parcels_updated[, current_far := pmin(upper_far_limit, current_far_res + current_far_nonres + current_far_mixed)]
 
-parcels_updated[, net_du := pmax(zoned_du - residential_units, 0)]
-parcels_updated[, net_res_sqft := pmax(zoned_sqft_res - residential_sqft, 0)]
-parcels_updated[, net_nonres_sqft := pmax(zoned_sqft_nonres - non_residential_sqft, 0)]
-
 #Current built square footage(FAR) less than 1.0 (Market criteria #2)
 parcels_updated[, current_far_to_redevelop := 0]
 parcels_updated[current_far < max_far_to_redevelop, current_far_to_redevelop := 1]
@@ -200,13 +202,32 @@ parcels_updated[zoned_use %in%  c("residential", "commercial", "mixed") & zoned_
 parcels_updated[, is_in_bill := 0]
 parcels_updated[is_in_bill_no_size == 1 & developable_sq_ft == 1, is_in_bill := 1]
 
-parcels_updated[, potential_far := zoned_far]
-parcels_updated[is_in_bill & vision_hct == 1, potential_far := pmax(6, zoned_far)]
-parcels_updated[is_in_bill & vision_hct == 2, potential_far := pmax(4, zoned_far)]
+parcels_updated[, `:=`(potential_far_res_mixed = zoned_far_res_mixed, potential_far_res = zoned_far_res, 
+                       potential_far_nonres_mixed = zoned_far_nonres_mixed, potential_far_nonres = zoned_far_nonres, 
+                       potential_far = zoned_far)]
+parcels_updated[is_in_bill & vision_hct == 1 & zoned_use == "mixed", `:=`(potential_far_res_mixed = pmax(potential_far_for_capacity[1]/2, potential_far_res_mixed),
+                                                                          potential_far_nonres_mixed = pmax(potential_far_for_capacity[1]/2, potential_far_nonres_mixed)
+                                                                                                         )]
+parcels_updated[is_in_bill & vision_hct == 1 & zoned_use != "mixed", `:=`(potential_far_res = pmax(potential_far_for_capacity[1], potential_far_res),
+                                                                          potential_far_nonres = pmax(potential_far_for_capacity[1], potential_far_nonres))]
+parcels_updated[is_in_bill & vision_hct == 2 & zoned_use == "mixed", `:=`(potential_far_res_mixed = pmax(potential_far_for_capacity[2]/2, potential_far_res_mixed),
+                                                                          potential_far_nonres_mixed = pmax(potential_far_for_capacity[2]/2, potential_far_nonres_mixed)
+                                                                            )]
+parcels_updated[is_in_bill & vision_hct == 2 & zoned_use != "mixed", `:=`(potential_far_res = pmax(potential_far_for_capacity[2], potential_far_res),
+                                                                          potential_far_nonres = pmax(potential_far_for_capacity[2], potential_far_nonres))]
+parcels_updated[, potential_far := potential_far_res_mixed + potential_far_nonres_mixed + potential_far_res + potential_far_nonres]
 
-parcels_updated[, potential_far_alt := zoned_far]
-parcels_updated[is_in_bill & vision_hct == 1, potential_far_alt := pmax(5.1, zoned_far)]
-parcels_updated[is_in_bill & vision_hct == 2, potential_far_alt := pmax(3.4, zoned_far)]
+# Compute potential DUs & sqft
+parcels_updated[, `:=`(potential_du = 0, potential_sqft_res = 0, potential_sqft_nonres = 0)]
+parcels_updated[zoned_use %in% c("residential", "mixed"), `:=`(potential_du = (potential_far_res + potential_far_res_mixed) * parcel_sqft/sqft_per_du,
+                                                               potential_sqft_res = (potential_far_res + potential_far_res_mixed) * parcel_sqft)]
+parcels_updated[zoned_use %in% c("commercial", "mixed"), `:=`(potential_sqft_nonres = (potential_far_nonres + potential_far_nonres_mixed) * parcel_sqft)]
+
+# Compute net DU, sqft
+parcels_updated[, `:=`(net_du = pmax(potential_du - residential_units, 0),
+                       net_res_sqft = pmax(potential_sqft_res - residential_sqft, 0),
+                       net_nonres_sqft = pmax(potential_sqft_nonres - non_residential_sqft, 0)
+                       )]
 
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
@@ -309,15 +330,15 @@ summaries <- list()
 summaries[["pcl_count"]] <- create_summary(parcels_final, include_size = FALSE) # Table 1
 summaries[["pcl_count_by_lot_area"]] <- create_summary_by_lot_area(parcels_final)
 
-summaries[["zoned_du"]] <- create_summary(parcels_final, column_to_sum = "zoned_du") # 
+summaries[["zoned_du"]] <- create_summary(parcels_final, column_to_sum = "potential_du") # 
 summaries[["exist_du"]] <- create_summary(parcels_final, column_to_sum = "residential_units")
 summaries[["net_du"]] <- create_summary(parcels_final, column_to_sum = "net_du")
 
-summaries[["zoned_res_sqft"]] <- create_summary(parcels_final, column_to_sum = "zoned_sqft_res")
+summaries[["zoned_res_sqft"]] <- create_summary(parcels_final, column_to_sum = "potential_sqft_res")
 summaries[["exist_res_sqft"]] <- create_summary(parcels_final, column_to_sum = "residential_sqft")
 summaries[["net_res_sqft"]] <- create_summary(parcels_final, column_to_sum = "net_res_sqft")
 
-summaries[["zoned_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "zoned_sqft_nonres")
+summaries[["zoned_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "potential_sqft_nonres")
 summaries[["exist_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "non_residential_sqft")
 summaries[["net_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "net_nonres_sqft")
 
@@ -380,7 +401,7 @@ description <- list(
     net_du_market = "Net allowable dwelling units for parcels passing the market & size criteria",
     zoned_res_sqft_market = "Gross allowable residential sqft for parcels passing the market & size criteria",
     exist_res_sqft_market = "Existing residential sqft for parcels passing the market & size criteria",
-    net_res_sqft_market = "Net allowable residential sqft for parcels passing the market & size criteria"
+    net_res_sqft_market = "Net allowable residential sqft for parcels passing the market & size criteria",
     zoned_nonres_sqft_market = "Gross allowable non-residential sqft for parcels passing the market & size criteria",
     exist_nonres_sqft_market = "Existing non-residential sqft for parcels passing the market & size criteria",
     net_nonres_sqft_market = "Net allowable non-residential sqft for parcels passing the market & size criteria"
@@ -390,7 +411,7 @@ descr[, indicator := gsub("MFACTOR", market_factor, indicator)]
 descr[, indicator := gsub("MAXFAR", max_far_to_redevelop, indicator)]
 top_page <- merge(descr, top_page, by = "indicator", sort = FALSE)
 
-setcolorder(top_page, c(c("indicator", "description"), intersect(colnames(summaries[["parcel_count_size"]]), colnames(top_page)))) # re-order columns
+setcolorder(top_page, c(c("indicator", "description"), intersect(colnames(summaries[["pcl_count_size"]]), colnames(top_page)))) # re-order columns
 
 summaries <- c(list(Region = top_page), summaries) # set the regional summaries as the first sheet
 
