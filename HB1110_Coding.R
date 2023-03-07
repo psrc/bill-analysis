@@ -217,7 +217,7 @@ for(sheet in names(summaries)){
                                                               .SDcols = setdiff(colnames(summaries[[sheet]]), c("city_id", "city_name", "tier")), by = "tier"]),
                       fill = TRUE)
 }
-top_page[,tier := as.character(tier)][tier == -1, tier := "total"]
+top_page[,tier := as.character(tier)][tier == -1, tier := "1,2"]
 summaries[["existing_units"]] <- existing_units
 summaries <- c(list(Region = top_page), summaries) # set the regional summaries as the first sheet
 
