@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 03/06/2023
+# Last update: 03/08/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -19,7 +19,7 @@ setwd("J:/Projects/Bill-Analysis/2023/scripts")
 #setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
-write.parcels.file <- FALSE
+write.parcels.file <- TRUE
 write.summary.files.to.csv <- FALSE
 write.summary.files.to.excel <- TRUE
 
@@ -29,7 +29,7 @@ parcels_file_name <- "parcels_for_bill_analysis.csv"
 #parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
 parcel_vision_hct_file_name <- "revised_buffers_1110.csv"
 cities_file_name <- "cities.csv"
-tier_file_name <- "cities_coded.csv"
+tier_file_name <- "cities_coded_all_20230307.csv"
 
 # tier definitions
 tier_constraints <- list(`1` = c(4, 2), # in the form c(hct_constraint, non-hct_constraint)
@@ -38,6 +38,7 @@ tier_constraints <- list(`1` = c(4, 2), # in the form c(hct_constraint, non-hct_
                          )
 #tier_column <- "Original"
 tier_column <- "Substitute"
+tier_column <- "Final"
 
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_XXX-", Sys.Date(), ".csv") # will be written into data_dir
