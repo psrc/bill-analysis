@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 03/08/2023
+# Last update: 03/10/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -27,7 +27,7 @@ data_dir <- "../data" # directory where the data files below live
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 #parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
-parcel_vision_hct_file_name <- "revised_buffers_1110.csv"
+parcel_vision_hct_file_name <- "revised_buffers_1110_v2.csv"
 cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded_all_20230307.csv"
 
@@ -70,7 +70,7 @@ parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
 #parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct[, .(parcel_id, vision_hct)], all=TRUE)
 parcels_updated <- copy(parcels_for_bill_analysis)
 parcels_updated[, vision_hct := 0]
-parcels_updated[parcel_id %in% parcel_vision_hct[hct_quarter_mile == 1 | parks == 1 | schools == 1, parcel_id], vision_hct := 1]
+parcels_updated[parcel_id %in% parcel_vision_hct[hct_updated == 1, parcel_id], vision_hct := 1]
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
@@ -90,9 +90,9 @@ for(tier in tiers) { # iterate over the non-zero city tiers
                         (vision_hct == 0 & DUcap >= tier_constraints[[tier]][2])), already_zoned := 1]
 }
 
-#Creates "sq_ft_less_2500" field denoting records with parcel square footage of less then 2,500
-parcels_updated[, sq_ft_less_2500 := 0]
-parcels_updated[parcel_sqft < 2500, sq_ft_less_2500 := 1]
+#Creates "sq_ft_less_2000" field denoting records with parcel square footage of less then 2,000
+parcels_updated[, sq_ft_less_2000 := 0]
+parcels_updated[parcel_sqft < 2000, sq_ft_less_2000 := 1]
 
 #Creates "sf_use" field denoting single family parcels
 parcels_updated[, sf_use := 0]
@@ -116,7 +116,7 @@ parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "
 
 # split parcels into two sets: 1. all parcels included in the bill, 2. parcels likely to develop
 parcels_in_bill <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
-parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
+parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2000 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
 
 #Writes csv output files
 if(write.parcels.file) {
@@ -171,10 +171,10 @@ create_summary <- function(dt){
 # Create summaries
 summaries <- list()
 summaries[["all_parcels"]] <- create_summary(parcels_final)
-summaries[["filter_parcel_sqft"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0])
-summaries[["filter_parcel_sqft_under1400"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0 & built_sqft_less_1400 == 1])
-summaries[["filter_parcel_sqft_land_value"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1])
-summaries[["filter_all"]] <- create_summary(parcels_final[sq_ft_less_2500 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
+summaries[["filter_parcel_sqft"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0])
+summaries[["filter_parcel_sqft_under1400"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0 & built_sqft_less_1400 == 1])
+summaries[["filter_parcel_sqft_land_value"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0 & land_greater_improvement == 1])
+summaries[["filter_all"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
 
 # create a dataset of existing units
 existing_units <- merge(cities[, .(city_id, tier, city_name)], 
@@ -201,10 +201,10 @@ for(sheet in names(summaries)){
 }
 description <- list(
     all_parcels = "Total number of parcels",
-    filter_parcel_sqft = "Parcels larger than 2500 sqft",
-    filter_parcel_sqft_under1400 = "Parcels larger than 2500 sqft that have built residential sqft smaller than 1400",
-    filter_parcel_sqft_land_value = "Parcels larger than 2500 sqft with land value > improvement value",
-    filter_all = "Parcels larger than 2500 sqft passing both market criteria"
+    filter_parcel_sqft = "Parcels larger than 2000 sqft",
+    filter_parcel_sqft_under1400 = "Parcels larger than 2000 sqft that have built residential sqft smaller than 1400",
+    filter_parcel_sqft_land_value = "Parcels larger than 2000 sqft with land value > improvement value",
+    filter_all = "Parcels larger than 2000 sqft passing both market criteria"
 )
 descr <- cbind(data.table(description), indicator = names(description))
 top_page_total <- merge(descr, top_page_total, by = "indicator", sort = FALSE)

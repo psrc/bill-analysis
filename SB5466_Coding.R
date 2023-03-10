@@ -51,7 +51,7 @@ sqft_per_du <-1200
 
 # FAR used for computing capacity measures in (hct-1, hct-2)
 potential_far_for_capacity <- c(6, 4)
-#potential_far_for_capacity <- c(5.1, 3.4)
+potential_far_for_capacity <- c(5.1, 3.4)
 
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_SB5466_XXX-", Sys.Date(), ".csv") # will be written into data_dir
