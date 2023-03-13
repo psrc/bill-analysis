@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 03/10/2023
+# Last update: 03/13/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -32,13 +32,16 @@ cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded_all_20230307.csv"
 
 # tier definitions
-tier_constraints <- list(`1` = c(4, 2), # in the form c(hct_constraint, non-hct_constraint)
-                         `2` = c(6, 4)
+tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint, hct_mixed_constraint, non-hct_constraint, non-hct_mixed_constraint)
+                         `2` = c(6, 4, 4, 3)
                          #`1` = c(6, 4) # original constraint
                          )
 #tier_column <- "Original"
-tier_column <- "Substitute"
+#tier_column <- "Substitute"
 tier_column <- "Final"
+
+# size restriction for parcels to be included
+min_parcel_sqft_for_analysis <- 2000
 
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_XXX-", Sys.Date(), ".csv") # will be written into data_dir
@@ -79,20 +82,28 @@ parcels_updated[DUcap > 0 & is_mixed_cap == 0, res_zone := 1]
 #Creates "mix_zone" field that denotes mixed-use zoned parcels
 parcels_updated[, mixed_zone := 0]
 parcels_updated[DUcap > 0 & is_mixed_cap == 1, mixed_zone := 1]
+parcels_updated[, DUaltnetcap := DUcap]
+
+# update net capacity for mixed use (use 70% of total capacity)
+parcels_updated[mixed_zone == 1, DUaltnetcap := round(DUaltnetcap * 0.7)]
 
 # exclude all parks
 parcels_updated[land_use_type_id == 19, `:=`(res_zone = 0, mixed_zone = 0)]
 
-#Creates "already_zoned" field to denote parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
-parcels_updated[, already_zoned := 0]
+#Creates a field of potential DUs and denote parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
+parcels_updated[, `:=`(potential_du = DUaltnetcap, already_zoned = 0)]
 for(tier in tiers) { # iterate over the non-zero city tiers
-    parcels_updated[(city_tier == tier) & ((vision_hct == 1 & DUcap >= tier_constraints[[tier]][1]) | 
-                        (vision_hct == 0 & DUcap >= tier_constraints[[tier]][2])), already_zoned := 1]
+    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 0, potential_du := pmax(potential_du, tier_constraints[[tier]][1])]
+    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 1, potential_du := pmax(potential_du, tier_constraints[[tier]][2])]
+    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 0, potential_du := pmax(potential_du, tier_constraints[[tier]][3])]
+    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 1, potential_du := pmax(potential_du, tier_constraints[[tier]][4])]
 }
-
-#Creates "sq_ft_less_2000" field denoting records with parcel square footage of less then 2,000
-parcels_updated[, sq_ft_less_2000 := 0]
-parcels_updated[parcel_sqft < 2000, sq_ft_less_2000 := 1]
+parcels_updated[city_tier > 0 & DUaltnetcap >= potential_du, already_zoned := 1]
+parcels_updated[, net_du := pmax(0, potential_du - residential_units)] # compute net capacity
+                    
+#Creates a field denoting records with parcel square footage of less then a threshold (2000sf)
+parcels_updated[, sq_ft_lt_threshold := 0]
+parcels_updated[parcel_sqft < min_parcel_sqft_for_analysis, sq_ft_lt_threshold := 1]
 
 #Creates "sf_use" field denoting single family parcels
 parcels_updated[, sf_use := 0]
@@ -111,12 +122,14 @@ parcels_updated[land_value > improvement_value, land_greater_improvement := 1]
 parcels_updated[, built_sqft_less_1400 := 0]
 parcels_updated[residential_sqft < 1400, built_sqft_less_1400 := 1]
 
+
+
 #Adds city_name field to final parcel table
 parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "city_id")
 
 # split parcels into two sets: 1. all parcels included in the bill, 2. parcels likely to develop
 parcels_in_bill <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
-parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_less_2000 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
+parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_lt_threshold == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
 
 #Writes csv output files
 if(write.parcels.file) {
@@ -133,16 +146,16 @@ if(write.parcels.file) {
 
 
 # Functions for generating summaries
-create_summary_detail <- function(dt, col_prefix){
+create_summary_detail <- function(dt, col_prefix, column_to_sum = "one", decimal = 0){
     detail <- dt[, .(
-        total_parcels = .N, 
-        res_vacant = sum(res_zone == 1 & vacant == 1),
-        res_sf_use = sum(res_zone == 1 & sf_use == 1),
-        res_other_use = sum(res_zone == 1 & vacant == 0 & sf_use == 0),
-        mix_vacant = sum(mixed_zone == 1 & vacant == 1),
-        mix_sf_use = sum(mixed_zone == 1 & sf_use == 1),
-        mix_other_use = sum(mixed_zone == 1 & vacant == 0 & sf_use == 0),
-        other = sum(res_zone == 0 & mixed_zone == 0)
+        total_parcels = round(sum(get(column_to_sum)), decimal), 
+        res_vacant = round(sum((res_zone == 1 & vacant == 1)*get(column_to_sum)), decimal),
+        res_sf_use = round(sum((res_zone == 1 & sf_use == 1)*get(column_to_sum)), decimal),
+        res_other_use = round(sum((res_zone == 1 & vacant == 0 & sf_use == 0)*get(column_to_sum)), decimal),
+        mix_vacant = round(sum((mixed_zone == 1 & vacant == 1)*get(column_to_sum)), decimal),
+        mix_sf_use = round(sum((mixed_zone == 1 & sf_use == 1)*get(column_to_sum)), decimal),
+        mix_other_use = round(sum((mixed_zone == 1 & vacant == 0 & sf_use == 0)*get(column_to_sum)), decimal),
+        other = round(sum((res_zone == 0 & mixed_zone == 0)*get(column_to_sum)), decimal)
     ), by = "city_id"][order(city_id)]
     
     # add prefix to column names (excluding city_id which is first)
@@ -150,16 +163,18 @@ create_summary_detail <- function(dt, col_prefix){
     return(detail)
 }
 
-create_summary <- function(dt){
+create_summary <- function(dt, column_to_sum = "one", decimal = 0){
     # part that involves all parcels
     summary_all <- dt[, .(
-        total_parcels = .N, 
-        already_zoned = sum(already_zoned)
+        total_parcels = round(sum(get(column_to_sum)), decimal), 
+        already_zoned = round(sum((already_zoned == 1)*get(column_to_sum)), decimal)
     ), by = "city_id"][order(city_id)]
     
     # generate HCT and nonHCT parts of the summary
-    summary_hct <- create_summary_detail(dt[vision_hct == 1 & already_zoned == 0], col_prefix = "hct_")
-    summary_nonhct <- create_summary_detail(dt[vision_hct == 0 & already_zoned == 0], col_prefix = "nhct_")
+    summary_hct <- create_summary_detail(dt[vision_hct == 1 & already_zoned == 0], col_prefix = "hct_", 
+                                         column_to_sum = column_to_sum, decimal = decimal)
+    summary_nonhct <- create_summary_detail(dt[vision_hct == 0 & already_zoned == 0], col_prefix = "nhct_", 
+                                            column_to_sum = column_to_sum, decimal = decimal)
     
     # merge together and add city_name
     summary_final <- merge(merge(cities[, .(city_id, city_name, tier)], summary_all, by = "city_id", all = TRUE),
@@ -169,26 +184,34 @@ create_summary <- function(dt){
 }
 
 # Create summaries
+parcels_final[, one := 1] # dummy for summing # of parcels
 summaries <- list()
 summaries[["all_parcels"]] <- create_summary(parcels_final)
-summaries[["filter_parcel_sqft"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0])
-summaries[["filter_parcel_sqft_under1400"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0 & built_sqft_less_1400 == 1])
-summaries[["filter_parcel_sqft_land_value"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0 & land_greater_improvement == 1])
-summaries[["filter_all"]] <- create_summary(parcels_final[sq_ft_less_2000 == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1])
+summaries[["filter_parcel_sqft"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0])
+summaries[["filter_parcel_sqft_under1400"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0 & built_sqft_less_1400 == 1])
+summaries[["filter_parcel_sqft_land_value"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0 & land_greater_improvement == 1])
+parcels_filtered_all <- parcels_final[sq_ft_lt_threshold == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1]
+summaries[["filter_all"]] <- create_summary(parcels_filtered_all)
+summaries[["zoned_du_fltr_sqft"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0], column_to_sum = "potential_du")
+summaries[["exist_du_fltr_sqft"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0], column_to_sum = "residential_units")
+summaries[["net_du_fltr_sqft"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0], column_to_sum = "net_du")
+summaries[["zoned_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "potential_du")
+summaries[["exist_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "residential_units")
+summaries[["net_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "net_du")
 
-# create a dataset of existing units
-existing_units <- merge(cities[, .(city_id, tier, city_name)], 
-                        parcels_in_bill[, .(total = sum(residential_units), 
-                                                  HCT = sum(residential_units * vision_hct == 1), 
-                                                  nonHCT = sum(residential_units * (vision_hct == 0))),
-                                              by = "city_id"],
-                        by = "city_id")
-# add regional totals as the first row
-existing_units <- rbind(data.table(city_id = 0, tier = 0, city_name = "Region", 
-                                   total = existing_units[tier > 0, sum(total)], 
-                                   HCT = existing_units[tier > 0, sum(HCT)],
-                                   nonHCT = existing_units[tier > 0, sum(nonHCT)]),
-                        existing_units)
+# # create a dataset of existing units
+# existing_units <- merge(cities[, .(city_id, tier, city_name)], 
+#                         parcels_in_bill[, .(total = sum(residential_units), 
+#                                                   HCT = sum(residential_units * vision_hct == 1), 
+#                                                   nonHCT = sum(residential_units * (vision_hct == 0))),
+#                                               by = "city_id"],
+#                         by = "city_id")
+# # add regional totals as the first row
+# existing_units <- rbind(data.table(city_id = 0, tier = 0, city_name = "Region", 
+#                                    total = existing_units[tier > 0, sum(total)], 
+#                                    HCT = existing_units[tier > 0, sum(HCT)],
+#                                    nonHCT = existing_units[tier > 0, sum(nonHCT)]),
+#                         existing_units)
 
 # create top page with regional summaries
 top_page <- top_page_total <- NULL
@@ -201,10 +224,16 @@ for(sheet in names(summaries)){
 }
 description <- list(
     all_parcels = "Total number of parcels",
-    filter_parcel_sqft = "Parcels larger than 2000 sqft",
-    filter_parcel_sqft_under1400 = "Parcels larger than 2000 sqft that have built residential sqft smaller than 1400",
-    filter_parcel_sqft_land_value = "Parcels larger than 2000 sqft with land value > improvement value",
-    filter_all = "Parcels larger than 2000 sqft passing both market criteria"
+    filter_parcel_sqft = paste("Parcels larger than", min_parcel_sqft_for_analysis, "sqft"),
+    filter_parcel_sqft_under1400 = paste("Parcels larger than", min_parcel_sqft_for_analysis, "sqft that have built residential sqft smaller than 1400"),
+    filter_parcel_sqft_land_value = paste("Parcels larger than", min_parcel_sqft_for_analysis, "sqft with land value > improvement value"),
+    filter_all = paste("Parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
+    zoned_du_fltr_sqft = paste("Gross allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft"),
+    exist_du_fltr_sqft = paste("Existing dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft"),
+    net_du_fltr_sqft = paste("Net allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft"),
+    zoned_du_fltr_all = paste("Gross allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
+    exist_du_fltr_all = paste("Existing dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
+    net_du_fltr_all = paste("Net allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria")
 )
 descr <- cbind(data.table(description), indicator = names(description))
 top_page_total <- merge(descr, top_page_total, by = "indicator", sort = FALSE)
@@ -219,7 +248,7 @@ for(sheet in names(summaries)){
                       fill = TRUE)
 }
 top_page[,tier := as.character(tier)][tier == -1, tier := "1,2"]
-summaries[["existing_units"]] <- existing_units
+#summaries[["existing_units"]] <- existing_units
 summaries <- c(list(Region = top_page), summaries) # set the regional summaries as the first sheet
 
 if(write.summary.files.to.csv || write.summary.files.to.excel){
