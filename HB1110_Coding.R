@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 03/13/2023
+# Last update: 03/14/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -99,8 +99,9 @@ for(tier in tiers) { # iterate over the non-zero city tiers
     parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 1, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][4]), zoning_constr = tier_constraints[[tier]][3])]
 }
 #parcels_updated[city_tier > 0 & DUaltnetcap >= potential_du, already_zoned := 1]
-parcels_updated[city_tier > 0 & DUcap >= zoning_constr, already_zoned := 1]
-parcels_updated[, net_du := pmax(0, potential_du - residential_units)] # compute net capacity
+parcels_updated[city_tier > 0 & DUcap >= zoning_constr, already_zoned := 1] # compare 100% capacity with 100% potential zoning
+parcels_updated[, net_du := pmax(0, potential_du - residential_units)] # compute potential net capacity
+parcels_updated[, current_net_du := pmax(0, DUaltnetcap - residential_units)] # current net capacity
                     
 #Creates a field denoting records with parcel square footage of less then a threshold (2000sf)
 parcels_updated[, sq_ft_lt_threshold := 0]
@@ -199,20 +200,8 @@ summaries[["net_du_fltr_sqft"]] <- create_summary(parcels_final[sq_ft_lt_thresho
 summaries[["zoned_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "potential_du")
 summaries[["exist_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "residential_units")
 summaries[["net_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "net_du")
+summaries[["current_net_du_fltr_sqft"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0], column_to_sum = "current_net_du")
 
-# # create a dataset of existing units
-# existing_units <- merge(cities[, .(city_id, tier, city_name)], 
-#                         parcels_in_bill[, .(total = sum(residential_units), 
-#                                                   HCT = sum(residential_units * vision_hct == 1), 
-#                                                   nonHCT = sum(residential_units * (vision_hct == 0))),
-#                                               by = "city_id"],
-#                         by = "city_id")
-# # add regional totals as the first row
-# existing_units <- rbind(data.table(city_id = 0, tier = 0, city_name = "Region", 
-#                                    total = existing_units[tier > 0, sum(total)], 
-#                                    HCT = existing_units[tier > 0, sum(HCT)],
-#                                    nonHCT = existing_units[tier > 0, sum(nonHCT)]),
-#                         existing_units)
 
 # create top page with regional summaries
 top_page <- top_page_total <- NULL
@@ -234,7 +223,8 @@ description <- list(
     net_du_fltr_sqft = paste("Net allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft"),
     zoned_du_fltr_all = paste("Gross allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
     exist_du_fltr_all = paste("Existing dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
-    net_du_fltr_all = paste("Net allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria")
+    net_du_fltr_all = paste("Net allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
+    current_net_du_fltr_sqft = paste("Net dwelling units allowable by current zoning on parcels larger than", min_parcel_sqft_for_analysis, "sqft")
 )
 descr <- cbind(data.table(description), indicator = names(description))
 top_page_total <- merge(descr, top_page_total, by = "indicator", sort = FALSE)
