@@ -19,7 +19,7 @@ setwd("J:/Projects/Bill-Analysis/2023/scripts")
 #setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
-write.parcels.file <- TRUE
+write.parcels.file <- FALSE
 write.summary.files.to.csv <- FALSE
 write.summary.files.to.excel <- TRUE
 
@@ -85,20 +85,21 @@ parcels_updated[DUcap > 0 & is_mixed_cap == 1, mixed_zone := 1]
 parcels_updated[, DUaltnetcap := DUcap]
 
 # update net capacity for mixed use (use 70% of total capacity)
-parcels_updated[mixed_zone == 1, DUaltnetcap := round(DUaltnetcap * 0.7)]
+parcels_updated[mixed_zone == 1, DUaltnetcap := DUaltnetcap * 0.7]
 
 # exclude all parks
 parcels_updated[land_use_type_id == 19, `:=`(res_zone = 0, mixed_zone = 0)]
 
 #Creates a field of potential DUs and denote parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
-parcels_updated[, `:=`(potential_du = DUaltnetcap, already_zoned = 0)]
+parcels_updated[, `:=`(potential_du = DUaltnetcap, already_zoned = 0, zoning_constr = 0)]
 for(tier in tiers) { # iterate over the non-zero city tiers
-    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 0, potential_du := pmax(potential_du, tier_constraints[[tier]][1])]
-    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 1, potential_du := pmax(potential_du, tier_constraints[[tier]][2])]
-    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 0, potential_du := pmax(potential_du, tier_constraints[[tier]][3])]
-    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 1, potential_du := pmax(potential_du, tier_constraints[[tier]][4])]
+    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 0, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][1]), zoning_constr = tier_constraints[[tier]][1])]
+    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 1, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][2]), zoning_constr = tier_constraints[[tier]][1])]
+    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 0, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][3]), zoning_constr = tier_constraints[[tier]][3])]
+    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 1, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][4]), zoning_constr = tier_constraints[[tier]][3])]
 }
-parcels_updated[city_tier > 0 & DUaltnetcap >= potential_du, already_zoned := 1]
+#parcels_updated[city_tier > 0 & DUaltnetcap >= potential_du, already_zoned := 1]
+parcels_updated[city_tier > 0 & DUcap >= zoning_constr, already_zoned := 1]
 parcels_updated[, net_du := pmax(0, potential_du - residential_units)] # compute net capacity
                     
 #Creates a field denoting records with parcel square footage of less then a threshold (2000sf)
