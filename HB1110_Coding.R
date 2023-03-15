@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 03/14/2023
+# Last update: 03/15/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -201,6 +201,7 @@ summaries[["zoned_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_
 summaries[["exist_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "residential_units")
 summaries[["net_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "net_du")
 summaries[["current_net_du_fltr_sqft"]] <- create_summary(parcels_final[sq_ft_lt_threshold == 0], column_to_sum = "current_net_du")
+summaries[["current_net_du_fltr_all"]] <- create_summary(parcels_filtered_all, column_to_sum = "current_net_du")
 
 
 # create top page with regional summaries
@@ -224,8 +225,10 @@ description <- list(
     zoned_du_fltr_all = paste("Gross allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
     exist_du_fltr_all = paste("Existing dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
     net_du_fltr_all = paste("Net allowable dwelling units on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria"),
-    current_net_du_fltr_sqft = paste("Net dwelling units allowable by current zoning on parcels larger than", min_parcel_sqft_for_analysis, "sqft")
+    current_net_du_fltr_sqft = paste("Net dwelling units allowable by current zoning on parcels larger than", min_parcel_sqft_for_analysis, "sqft"),
+    current_net_du_fltr_all = paste("Net dwelling units allowable by current zoning on parcels larger than", min_parcel_sqft_for_analysis, "sqft passing both market criteria")
 )
+
 descr <- cbind(data.table(description), indicator = names(description))
 top_page_total <- merge(descr, top_page_total, by = "indicator", sort = FALSE)
 
