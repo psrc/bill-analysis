@@ -29,7 +29,7 @@ parcels_file_name <- "parcels_for_bill_analysis.csv"
 #parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
 parcel_vision_hct_file_name <- "revised_buffers_1110_v2.csv"
 cities_file_name <- "cities.csv"
-tier_file_name <- "cities_coded_all_20230307.csv"
+tier_file_name <- "cities_coded_all_20230320.csv"
 
 # tier definitions
 tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint, hct_mixed_constraint, non-hct_constraint, non-hct_mixed_constraint)
@@ -38,7 +38,7 @@ tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint
                          )
 #tier_column <- "Original"
 #tier_column <- "Substitute"
-tier_column <- "Final"
+tier_column <- "Final_rev"
 
 # size restriction for parcels to be included
 min_parcel_sqft_for_analysis <- 2000
