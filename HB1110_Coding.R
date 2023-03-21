@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 03/15/2023
+# Last update: 03/20/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -19,7 +19,7 @@ setwd("J:/Projects/Bill-Analysis/2023/scripts")
 #setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
-write.parcels.file <- FALSE
+write.parcels.file <- TRUE
 write.summary.files.to.csv <- FALSE
 write.summary.files.to.excel <- TRUE
 
@@ -27,7 +27,7 @@ data_dir <- "../data" # directory where the data files below live
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 #parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
-parcel_vision_hct_file_name <- "revised_buffers_1110_v2.csv"
+parcel_vision_hct_file_name <- "revised_buffers_1110_v3.csv"
 cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded_all_20230320.csv"
 
@@ -73,7 +73,7 @@ parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
 #parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct[, .(parcel_id, vision_hct)], all=TRUE)
 parcels_updated <- copy(parcels_for_bill_analysis)
 parcels_updated[, vision_hct := 0]
-parcels_updated[parcel_id %in% parcel_vision_hct[hct_updated == 1, parcel_id], vision_hct := 1]
+parcels_updated[parcel_id %in% parcel_vision_hct[vision_hct == 1, parcel_id], vision_hct := 1]
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
