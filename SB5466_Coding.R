@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files and an excel file.
 #
-# Last update: 03/07/2023
+# Last update: 03/27/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -15,8 +15,8 @@ if(! "data.table" %in% installed.packages())
 library(data.table)
 
 # Run this script from the directory of this file, unless data_dir is set as an absolute path
-setwd("J:/Projects/Bill-Analysis/2023/scripts")
-#setwd("~/psrc/R/bill-analysis/scripts")
+#setwd("J:/Projects/Bill-Analysis/2023/scripts")
+setwd("~/psrc/R/bill-analysis/scripts")
 
 # Settings
 write.parcels.file <- FALSE
@@ -25,7 +25,7 @@ write.summary.files.to.excel <- TRUE
 
 data_dir <- "../data" # directory where the data files below live 
                       # (it's a relative path to the script location; can be also set as an absolute path)
-parcels_file_name <- "parcels_for_bill_analysis.csv" 
+parcels_file_name <- "parcels_for_bill_analysis_2023-02-21.csv" 
 parcel_vision_hct_file_name <- "parcel_vision_hct_5466.csv"
 cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded_all.csv"
@@ -62,8 +62,7 @@ output_dir <- paste0("SB5466_results-", Sys.Date())
 scenario_string <- paste0("_lotsize", min_parcel_sqft_for_analysis, 
                           "_mfactor", market_factor, 
                           "_far", max_far_to_redevelop,
-                          if(all(potential_far_for_capacity == c(6,4))) "" else paste0("_potfar", 
-                          potential_far_for_capacity[1], "_", potential_far_for_capacity[2]))
+                          paste0("_potfar", potential_far_for_capacity[1], "_", potential_far_for_capacity[2]))
 
 # Read input files
 parcels_for_bill_analysis <- fread(file.path(data_dir, parcels_file_name)) # parcels
@@ -204,6 +203,9 @@ parcels_updated[zoned_use %in%  c("residential", "commercial", "mixed") & zoned_
 parcels_updated[, is_in_bill := 0]
 parcels_updated[is_in_bill_no_size == 1 & developable_sq_ft == 1, is_in_bill := 1]
 
+parcels_updated[, is_yrbuilt_for_redevelop := Nblds > 0 & (is.na(max_year_built) | max_year_built < 1600 | (max_year_built > 1945 & max_year_built < 1990))]
+
+
 # upzone eligible parcels
 parcels_updated[, `:=`(potential_far_res_mixed = zoned_far_res_mixed, potential_far_res = zoned_far_res, 
                        potential_far_nonres_mixed = zoned_far_nonres_mixed, potential_far_nonres = zoned_far_nonres, 
@@ -332,6 +334,7 @@ parcels_final[, one := 1] # dummy for summing # of parcels
 summaries <- list()
 summaries[["pcl_count"]] <- create_summary(parcels_final, include_size = FALSE) # Table 1
 summaries[["pcl_count_by_lot_area"]] <- create_summary_by_lot_area(parcels_final)
+summaries[["pcl_count_size"]] <- create_summary(parcels_final) # 
 
 summaries[["zoned_du"]] <- create_summary(parcels_final, column_to_sum = "potential_du") # 
 summaries[["exist_du"]] <- create_summary(parcels_final, column_to_sum = "residential_units")
@@ -345,7 +348,8 @@ summaries[["zoned_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum 
 summaries[["exist_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "non_residential_sqft")
 summaries[["net_nonres_sqft"]] <- create_summary(parcels_final, column_to_sum = "net_nonres_sqft")
 
-summaries[["pcl_count_size"]] <- create_summary(parcels_final, include_size = TRUE) # 
+summaries[["pcl_count_year_built"]] <- create_summary(parcels_final[is_yrbuilt_for_redevelop == 1])
+summaries[[paste0("pcl_count_year_built_far_", max_far_to_redevelop)]] <- create_summary(parcels_final[is_yrbuilt_for_redevelop == 1 & current_far_to_redevelop == 1])
 
 summaries[[paste0("pcl_count_land_imp_ratio_", market_factor)]] <- create_summary(parcels_final[land_greater_improvement == 1]) # Table 5
 summaries[[paste0("pcl_count_far_", max_far_to_redevelop)]]  <- create_summary(parcels_final[current_far_to_redevelop == 1]) # Table 6
@@ -384,6 +388,7 @@ for(sheet in setdiff(names(summaries), "pcl_count_by_lot_area")){
 }
 description <- list(
     pcl_count = "Total number of parcels",
+    pcl_count_size = paste0("Number of parcels larger than ", min_parcel_sqft_for_analysis, " sqft (all remaining indicators pass this condition)"),
     zoned_du = "Gross allowable dwelling units",
     exist_du = "Existing dwelling units",
     net_du = "Net allowable dwelling units",
@@ -393,21 +398,20 @@ description <- list(
     zoned_nonres_sqft = "Gross allowable non-residential sqft",
     exist_nonres_sqft = "Existing non-residential sqft",
     net_nonres_sqft = "Net allowable non-residential sqft",
-    pcl_count_size = paste0("Number of parcels larger than ", min_parcel_sqft_for_analysis, " sqft"),
-    pcl_count_land_imp_ratio_MFACTOR = paste0("Number of parcels with land/improvement ratio > ", market_factor,
-                                        " (market 1) and > ", min_parcel_sqft_for_analysis, " sqft"),
-    pcl_count_far_MAXFAR = paste0("Number of parcels with current FAR < ", max_far_to_redevelop,
-                               " (market 2) and > ", min_parcel_sqft_for_analysis, " sqft"),
-    pcl_count_market = "Number of parcels passing both market criteria as well as the size condition.",
-    zoned_du_market = "Gross allowable dwelling units for parcels passing the market & size criteria",
-    exist_du_market = "Existing dwelling units  for parcels passing the market & size criteria",
-    net_du_market = "Net allowable dwelling units for parcels passing the market & size criteria",
-    zoned_res_sqft_market = "Gross allowable residential sqft for parcels passing the market & size criteria",
-    exist_res_sqft_market = "Existing residential sqft for parcels passing the market & size criteria",
-    net_res_sqft_market = "Net allowable residential sqft for parcels passing the market & size criteria",
-    zoned_nonres_sqft_market = "Gross allowable non-residential sqft for parcels passing the market & size criteria",
-    exist_nonres_sqft_market = "Existing non-residential sqft for parcels passing the market & size criteria",
-    net_nonres_sqft_market = "Net allowable non-residential sqft for parcels passing the market & size criteria"
+    pcl_count_year_built = "Number of parcels for which year built supports redevelopment (1945-1989 or missing)", 
+    pcl_count_land_imp_ratio_MFACTOR = paste0("Number of parcels with land/improvement ratio > ", market_factor, " (market 1)"),
+    pcl_count_far_MAXFAR = paste0("Number of parcels with current FAR < ", max_far_to_redevelop, " (market 2)"),
+    pcl_count_market = "Number of parcels passing both market criteria",
+    pcl_count_year_built_far_MAXFAR = "Number of parcels passing the year built and the market 2 criteria",
+    zoned_du_market = "Gross allowable dwelling units for parcels passing the market criteria",
+    exist_du_market = "Existing dwelling units  for parcels passing the market criteria",
+    net_du_market = "Net allowable dwelling units for parcels passing the market criteria",
+    zoned_res_sqft_market = "Gross allowable residential sqft for parcels passing the market criteria",
+    exist_res_sqft_market = "Existing residential sqft for parcels passing the market criteria",
+    net_res_sqft_market = "Net allowable residential sqft for parcels passing the market criteria",
+    zoned_nonres_sqft_market = "Gross allowable non-residential sqft for parcels passing the market criteria",
+    exist_nonres_sqft_market = "Existing non-residential sqft for parcels passing the market criteria",
+    net_nonres_sqft_market = "Net allowable non-residential sqft for parcels passing the market criteria"
 )
 descr <- cbind(data.table(description), indicator = names(description))
 descr[, indicator := gsub("MFACTOR", market_factor, indicator)]
