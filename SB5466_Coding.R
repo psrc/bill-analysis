@@ -401,6 +401,31 @@ summaries[["exist_nonres_sqft_market"]] <- create_summary(parcels_meeting_market
 summaries[["net_nonres_sqft_market"]] <- create_summary(parcels_meeting_market_cond, 
                                                       column_to_sum = "net_nonres_sqft") # 
 
+parcels_meeting_year_market_cond <- parcels_final[is_yrbuilt_for_redevelop == 1 & both_value_size == 1]
+summaries[["pcl_count_year_market"]] <- create_summary(parcels_meeting_year_market_cond)
+
+summaries[["zoned_du_year_market"]]  <- create_summary(parcels_meeting_year_market_cond, 
+                                                    column_to_sum = "zoned_du") # 
+summaries[["exist_du_year_market"]] <- create_summary(parcels_meeting_year_market_cond, 
+                                                   column_to_sum = "residential_units") # 
+summaries[["net_du_year_market"]] <- create_summary(parcels_meeting_year_market_cond, 
+                                                 column_to_sum = "net_du") # 
+
+summaries[["zoned_res_sqft_year_market"]]  <- create_summary(parcels_meeting_year_market_cond, 
+                                                          column_to_sum = "zoned_sqft_res") #
+summaries[["exist_res_sqft_year_market"]] <- create_summary(parcels_meeting_year_market_cond, 
+                                                         column_to_sum = "residential_sqft") # 
+summaries[["net_res_sqft_year_market"]] <- create_summary(parcels_meeting_year_market_cond, 
+                                                       column_to_sum = "net_res_sqft") 
+
+summaries[["zoned_nonres_sqft_year_market"]] <- create_summary(parcels_meeting_year_market_cond, 
+                                                            column_to_sum = "zoned_sqft_nonres") # 
+summaries[["exist_nonres_sqft_year_market"]] <- create_summary(parcels_meeting_year_market_cond, 
+                                                            column_to_sum = "non_residential_sqft") #
+summaries[["net_nonres_sqft_year_market"]] <- create_summary(parcels_meeting_year_market_cond, 
+                                                          column_to_sum = "net_nonres_sqft") # 
+
+
 # create top page with regional summaries
 top_page <- NULL
 for(sheet in setdiff(names(summaries), "pcl_count_by_lot_area")){
@@ -424,8 +449,9 @@ description <- list(
     pcl_count_land_imp_ratio_MFACTOR = paste0("Number of parcels with land/improvement ratio > ", market_factor, " (market 1)"),
     pcl_count_far_MAXFAR = paste0("Number of parcels with current FAR < ", max_far_to_redevelop, " (market 2)"),
     pcl_count_market = "Number of parcels passing both market criteria",
-    pcl_count_year_built = "Number of parcels for which year built supports redevelopment (1945-1989 or missing)", 
+    pcl_count_year_built = "Number of parcels for which year built supports redevelopment, i.e 1945-1989 or missing", 
     pcl_count_year_far_MAXFAR = "Number of parcels passing the year built and the market 2 criterion (year & far)",
+    pcl_count_year_market = "Number of parcels passing all 3 criteria: year built, market 1 & market 2 (year & market)",
     zoned_du_year_far = "Gross allowable dwelling units for parcels passing the year & far criteria",
     exist_du_year_far = "Existing dwelling units  for parcels passing the year & far criteria",
     net_du_year_far = "Net allowable dwelling units for parcels passing the year & far criteria",
@@ -443,7 +469,16 @@ description <- list(
     net_res_sqft_market = "Net allowable residential sqft for parcels passing the market criteria",
     zoned_nonres_sqft_market = "Gross allowable non-residential sqft for parcels passing the market criteria",
     exist_nonres_sqft_market = "Existing non-residential sqft for parcels passing the market criteria",
-    net_nonres_sqft_market = "Net allowable non-residential sqft for parcels passing the market criteria"
+    net_nonres_sqft_market = "Net allowable non-residential sqft for parcels passing the market criteria",
+    zoned_du_year_market = "Gross allowable dwelling units for parcels passing the year & market criteria",
+    exist_du_year_market = "Existing dwelling units  for parcels passing the year & market criteria",
+    net_du_year_market = "Net allowable dwelling units for parcels passing the year & market criteria",
+    zoned_res_sqft_year_market = "Gross allowable residential sqft for parcels passing the year & market criteria",
+    exist_res_sqft_year_market = "Existing residential sqft for parcels passing the year & market criteria",
+    net_res_sqft_year_market = "Net allowable residential sqft for parcels passing the year & market criteria",
+    zoned_nonres_sqft_year_market = "Gross allowable non-residential sqft for parcels passing the year & market criteria",
+    exist_nonres_sqft_year_market = "Existing non-residential sqft for parcels passing the year & market criteria",
+    net_nonres_sqft_year_market = "Net allowable non-residential sqft for parcels passing the year & market criteria"
 )
 descr <- cbind(data.table(description), indicator = names(description))
 descr[, indicator := gsub("MFACTOR", market_factor, indicator)]
