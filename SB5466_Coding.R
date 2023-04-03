@@ -41,7 +41,7 @@ min_parcel_sqft_for_analysis <- 5000
 market_factor <- 1.5
 
 # max FAR that would trigger re-development
-max_far_to_redevelop <- 1
+max_far_to_redevelop <- 0.5
 
 # max FAR for limiting mostly messy data
 upper_far_limit <- 50
@@ -50,8 +50,9 @@ upper_far_limit <- 50
 sqft_per_du <-1200
 
 # FAR used for computing capacity measures in (hct-1, hct-2)
-potential_far_for_capacity <- c(6, 4)
+#potential_far_for_capacity <- c(6, 4)
 #potential_far_for_capacity <- c(5.1, 3.4)
+potential_far_for_capacity <- c(3, 2.5)
 
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
 output_parcels_file_name <- paste0("selected_parcels_for_mapping_SB5466_XXX-", Sys.Date(), ".csv") # will be written into data_dir
