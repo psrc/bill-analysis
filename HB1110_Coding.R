@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 03/20/2023
+# Last update: 04/06/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -27,18 +27,19 @@ data_dir <- "../data" # directory where the data files below live
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 #parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
-parcel_vision_hct_file_name <- "revised_buffers_1110_v3.csv"
+parcel_vision_hct_file_name <- "revised_buffers_1110_v4.csv"
 cities_file_name <- "cities.csv"
-tier_file_name <- "cities_coded_all_20230320.csv"
+tier_file_name <- "cities_coded_all_20230405.csv"
 
 # tier definitions
 tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint, hct_mixed_constraint, non-hct_constraint, non-hct_mixed_constraint)
-                         `2` = c(6, 4, 4, 3)
+                         `2` = c(6, 4, 4, 3),
+                         `3` = c(2, 1.3, 2, 1.5)
                          #`1` = c(6, 4) # original constraint
                          )
 #tier_column <- "Original"
 #tier_column <- "Substitute"
-tier_column <- "Final_rev"
+tier_column <- "Rev_swm"
 
 # size restriction for parcels to be included
 min_parcel_sqft_for_analysis <- 2000
@@ -241,7 +242,7 @@ for(sheet in names(summaries)){
                                                               .SDcols = setdiff(colnames(summaries[[sheet]]), c("city_id", "city_name", "tier")), by = "tier"]),
                       fill = TRUE)
 }
-top_page[,tier := as.character(tier)][tier == -1, tier := "1,2"]
+top_page[,tier := as.character(tier)][tier == -1, tier := "1,2,3"]
 #summaries[["existing_units"]] <- existing_units
 summaries <- c(list(Region = top_page), summaries) # set the regional summaries as the first sheet
 
