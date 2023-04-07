@@ -34,7 +34,7 @@ tier_file_name <- "cities_coded_all_20230405.csv"
 # tier definitions
 tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint, hct_mixed_constraint, non-hct_constraint, non-hct_mixed_constraint)
                          `2` = c(6, 4, 4, 3),
-                         `3` = c(2, 1.3, 2, 1.5)
+                         `3` = c(2, 1.5, 2, 1.5)
                          #`1` = c(6, 4) # original constraint
                          )
 #tier_column <- "Original"
@@ -137,8 +137,8 @@ parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & 
 #Writes csv output files
 if(write.parcels.file) {
     #remove all fields from parcel tables except parcel_id,vision_hct,and city_tier
-    parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier")]
-    parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier")]
+    parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier","mixed_zone")]
+    parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier","mixed_zone")]
     # write to disk into a subdirectory of output_dir
     pcl_dir <- file.path(data_dir, output_dir, "parcels")
     if(!dir.exists(pcl_dir)) dir.create(pcl_dir, recursive = TRUE)
