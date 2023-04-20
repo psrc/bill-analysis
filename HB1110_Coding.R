@@ -27,7 +27,7 @@ data_dir <- "../data" # directory where the data files below live
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 #parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
-parcel_vision_hct_file_name <- "revised_buffers_1110_v4.csv"
+parcel_vision_hct_file_name <- "revised_buffers_1110_v5.csv"
 cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded_all_20230405.csv"
 
