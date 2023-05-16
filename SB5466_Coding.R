@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files and an excel file.
 #
-# Last update: 03/28/2023
+# Last update: 05/16/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -26,7 +26,8 @@ write.summary.files.to.excel <- TRUE
 data_dir <- "../data" # directory where the data files below live 
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis_2023-02-21.csv" 
-parcel_vision_hct_file_name <- "parcel_vision_hct_5466.csv"
+#parcel_vision_hct_file_name <- "parcel_vision_hct_5466.csv"
+parcel_vision_hct_file_name <- "parcel_tags.csv"
 cities_file_name <- "cities.csv"
 tier_file_name <- "cities_coded_all.csv"
 plan_type_file_name <- "plan_type_id_summary_r109_script.csv"
@@ -89,12 +90,16 @@ parcels_for_bill_analysis[city_id==95, city_id := 96]
 parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
     
 # remove duplicates from parcel_vision_hct
-parcel_vision_hct_unique <- parcel_vision_hct[, .(vision_hct = min(vision_hct)), by = "pin_1"] # for each parcel take the minimum hct tier
+#parcel_vision_hct_unique <- parcel_vision_hct[, .(vision_hct = min(vision_hct)), by = "pin_1"] # for each parcel take the minimum hct tier
 
 # Creates updated parcel table with "hct_vision" field added
-parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct_unique, by.x = "parcel_id",by.y = "pin_1", 
-                         all.x=TRUE, all.y = FALSE)
-parcels_updated[is.na(vision_hct), vision_hct := 0]
+#parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct_unique, by.x = "parcel_id",by.y = "pin_1", 
+#                         all.x=TRUE, all.y = FALSE)
+#parcels_updated[is.na(vision_hct), vision_hct := 0]
+parcels_updated <- copy(parcels_for_bill_analysis)
+parcels_updated[, vision_hct := 0]
+parcels_updated[parcel_id %in% parcel_vision_hct[hct_5466 == 1, parcel_id], vision_hct := 1]
+
 
 #Adds new fields from "plan_type" table to final parcel table
 parcels_updated <- merge(parcels_updated, plan_type[, .(plan_type_id,max_du,max_far,is_mixed_use_2,zoned_use,zoned_use_sf_mf)],  by = "plan_type_id")

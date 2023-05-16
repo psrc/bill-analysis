@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 04/06/2023
+# Last update: 05/16/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -27,9 +27,11 @@ data_dir <- "../data" # directory where the data files below live
                       # (it's a relative path to the script location; can be also set as an absolute path)
 parcels_file_name <- "parcels_for_bill_analysis.csv" 
 #parcel_vision_hct_file_name <- "parcel_vision_hct.csv"
-parcel_vision_hct_file_name <- "revised_buffers_1110_v5.csv"
+#parcel_vision_hct_file_name <- "revised_buffers_1110_v5.csv"
+parcel_vision_hct_file_name <- "parcel_tags.csv"
+
 cities_file_name <- "cities.csv"
-tier_file_name <- "cities_coded_all_20230405.csv"
+tier_file_name <- "cities_coded_all_20230505.csv"
 
 # tier definitions
 tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint, hct_mixed_constraint, non-hct_constraint, non-hct_mixed_constraint)
@@ -39,7 +41,8 @@ tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint
                          )
 #tier_column <- "Original"
 #tier_column <- "Substitute"
-tier_column <- "Rev_swm"
+#tier_column <- "Rev_swm"
+tier_column <- "Final"
 
 # size restriction for parcels to be included
 min_parcel_sqft_for_analysis <- 2000
@@ -74,7 +77,8 @@ parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
 #parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct[, .(parcel_id, vision_hct)], all=TRUE)
 parcels_updated <- copy(parcels_for_bill_analysis)
 parcels_updated[, vision_hct := 0]
-parcels_updated[parcel_id %in% parcel_vision_hct[vision_hct == 1, parcel_id], vision_hct := 1]
+parcels_updated[parcel_id %in% parcel_vision_hct[hct_1110 == 1 & airport == 0, 
+                                                 parcel_id], vision_hct := 1]
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
