@@ -6,7 +6,7 @@
 # It then creates several city-level summaries and exports 
 # the into csv files.
 #
-# Last update: 05/16/2023
+# Last update: 06/27/2023
 # Drew Hanson & Hana Sevcikova
 
 if(! "data.table" %in% installed.packages())
@@ -41,14 +41,14 @@ tier_constraints <- list(`1` = c(4, 2.7, 2, 1.5), # in the form c(hct_constraint
                          )
 #tier_column <- "Original"
 #tier_column <- "Substitute"
-#tier_column <- "Rev_swm"
-tier_column <- "Final"
+tier_column <- "Rev_swm"
+#tier_column <- "Final"
 
 # size restriction for parcels to be included
 min_parcel_sqft_for_analysis <- 2000
 
 # name of the output files; should include "XXX" which will be replaced by "in_bill" and "to_develop" to distinguish the two files
-output_parcels_file_name <- paste0("selected_parcels_for_mapping_XXX-", Sys.Date(), ".csv") # will be written into data_dir
+output_parcels_file_name <- paste0("selected_parcels_XXX-", Sys.Date(), ".csv") # will be written into data_dir
 # directory name where results should be written
 output_dir <- paste0("HB1110_results-", Sys.Date())
 
@@ -76,9 +76,9 @@ parcels_for_bill_analysis[cities, city_tier := i.tier, on = "city_id"]
 #parcel_vision_hct[, vision_hct := any(hct_quarter_mile, parks, schools)]
 #parcels_updated <- merge(parcels_for_bill_analysis, parcel_vision_hct[, .(parcel_id, vision_hct)], all=TRUE)
 parcels_updated <- copy(parcels_for_bill_analysis)
-parcels_updated[, vision_hct := 0]
+parcels_updated[, in_hct := 0]
 parcels_updated[parcel_id %in% parcel_vision_hct[hct_1110 == 1 & airport == 0, 
-                                                 parcel_id], vision_hct := 1]
+                                                 parcel_id], in_hct := 1]
 
 #Creates "res_zone" field that denotes residential zoned parcels
 parcels_updated[, res_zone := 0]
@@ -98,10 +98,10 @@ parcels_updated[land_use_type_id == 19, `:=`(res_zone = 0, mixed_zone = 0)]
 #Creates a field of potential DUs and denote parcels that are already zoned to meet requirements of bill (Step 3 in Methodology document)
 parcels_updated[, `:=`(potential_du = DUaltnetcap, already_zoned = 0, zoning_constr = 0)]
 for(tier in tiers) { # iterate over the non-zero city tiers
-    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 0, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][1]), zoning_constr = tier_constraints[[tier]][1])]
-    parcels_updated[city_tier == tier & vision_hct == 1 & mixed_zone == 1, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][2]), zoning_constr = tier_constraints[[tier]][1])]
-    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 0, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][3]), zoning_constr = tier_constraints[[tier]][3])]
-    parcels_updated[city_tier == tier & vision_hct == 0 & mixed_zone == 1, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][4]), zoning_constr = tier_constraints[[tier]][3])]
+    parcels_updated[city_tier == tier & in_hct == 1 & mixed_zone == 0, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][1]), zoning_constr = tier_constraints[[tier]][1])]
+    parcels_updated[city_tier == tier & in_hct == 1 & mixed_zone == 1, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][2]), zoning_constr = tier_constraints[[tier]][1])]
+    parcels_updated[city_tier == tier & in_hct == 0 & mixed_zone == 0, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][3]), zoning_constr = tier_constraints[[tier]][3])]
+    parcels_updated[city_tier == tier & in_hct == 0 & mixed_zone == 1, `:=`(potential_du = pmax(potential_du, tier_constraints[[tier]][4]), zoning_constr = tier_constraints[[tier]][3])]
 }
 #parcels_updated[city_tier > 0 & DUaltnetcap >= potential_du, already_zoned := 1]
 parcels_updated[city_tier > 0 & DUcap >= zoning_constr, already_zoned := 1] # compare 100% capacity with 100% potential zoning
@@ -137,17 +137,25 @@ parcels_final <- merge(parcels_updated, cities[, .(city_id, city_name)],  by = "
 # split parcels into two sets: 1. all parcels included in the bill, 2. parcels likely to develop
 parcels_in_bill <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1)]
 parcels_likely_to_develop <- parcels_final[city_tier > 0 & already_zoned == 0 & (res_zone == 1 | mixed_zone == 1) & sq_ft_lt_threshold == 0 & land_greater_improvement == 1 & built_sqft_less_1400 == 1 &  (vacant == 1 | sf_use == 1), ]
-
+parcels_in_bill[, parcel_likely_to_develop := parcel_id %in% parcels_likely_to_develop$parcel_id]
 #Writes csv output files
 if(write.parcels.file) {
-    #remove all fields from parcel tables except parcel_id,vision_hct,and city_tier
-    parcels_in_bill_to_save <- parcels_in_bill[, c("parcel_id", "vision_hct","city_tier","mixed_zone")]
-    parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "vision_hct","city_tier","mixed_zone")]
+    #remove all fields from parcel tables except parcel_id,in_hct,and city_tier
+    columns_to_export <- c("city_id", "parcel_id", "county_id", "census_2010_block_id", 
+                           "is_inside_urban_growth_boundary", "land_value", "land_use_type_id", "gross_sqft", "parcel_sqft",
+                           "residential_units", "non_residential_sqft", "Nblds", "lat", "lon", "x_coord_sp", "y_coord_sp",
+                           "residential_sqft", "improvement_value", "city_tier", "in_hct", 
+                           "parcel_likely_to_develop", "res_zone", "mixed_zone", "DUcap",
+                           "sq_ft_lt_threshold", "sf_use", "vacant", "land_greater_improvement", "built_sqft_less_1400",
+                           "in_hct","city_tier", "mixed_zone", "city_name")
+
+    parcels_in_bill_to_save <- parcels_in_bill[, columns_to_export, with = FALSE]
+    parcels_likely_to_develop_to_save <- parcels_likely_to_develop[, c("parcel_id", "in_hct","city_tier","mixed_zone")]
     # write to disk into a subdirectory of output_dir
     pcl_dir <- file.path(data_dir, output_dir, "parcels")
     if(!dir.exists(pcl_dir)) dir.create(pcl_dir, recursive = TRUE)
     fwrite(parcels_in_bill_to_save, file.path(pcl_dir, gsub("XXX", "in_bill", output_parcels_file_name)))
-    fwrite(parcels_likely_to_develop_to_save, file.path(pcl_dir, gsub("XXX", "to_develop", output_parcels_file_name)))
+    fwrite(parcels_likely_to_develop_to_save, file.path(pcl_dir, gsub("XXX", "for_mapping_to_develop", output_parcels_file_name)))
     cat("\nParcels written into ", file.path(pcl_dir, output_parcels_file_name), "\n")
 }
 
@@ -178,9 +186,9 @@ create_summary <- function(dt, column_to_sum = "one", decimal = 0){
     ), by = "city_id"][order(city_id)]
     
     # generate HCT and nonHCT parts of the summary
-    summary_hct <- create_summary_detail(dt[vision_hct == 1 & already_zoned == 0], col_prefix = "hct_", 
+    summary_hct <- create_summary_detail(dt[in_hct == 1 & already_zoned == 0], col_prefix = "hct_", 
                                          column_to_sum = column_to_sum, decimal = decimal)
-    summary_nonhct <- create_summary_detail(dt[vision_hct == 0 & already_zoned == 0], col_prefix = "nhct_", 
+    summary_nonhct <- create_summary_detail(dt[in_hct == 0 & already_zoned == 0], col_prefix = "nhct_", 
                                             column_to_sum = column_to_sum, decimal = decimal)
     
     # merge together and add city_name
